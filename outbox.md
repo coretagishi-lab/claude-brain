@@ -10,16 +10,13 @@
 
 ---
 
-### 2026-05-27 — セットアップ完了報告
+### 2026-05-27 — Discord通知設定完了
 
-セットアップ完了。スマホから指示を出せる状態になりました。
+Discord通知が有効になりました。
+approval.md・outbox.md の更新時にこのチャンネルへ通知が届きます。
 
-**構築済みの環境:**
-- inbox.md → 指示を書いてGitHubにコミット → 自動実行
-- outbox.md → 実行結果報告（このファイル）
-- approval.md → 承認が必要な時だけ（ntfy.shでスマホ通知）
-- 監視スクリプト: fswatch でinbox.mdを常時監視中
-
-**スマホ通知（ntfy.sh）のトピック名:**
-`.ntfy_topic` ファイルを確認してください。
-そのトピックをntfyアプリで購読するとapproval.md更新時に通知が届きます。
+**現在の構成:**
+- inbox.md → GitHubから指示受信 → 自動実行
+- outbox.md → 実行結果報告（更新時にDiscord通知）
+- approval.md → 承認が必要な時のみ（更新時にDiscord通知）
+- 通知: Discord Webhook
