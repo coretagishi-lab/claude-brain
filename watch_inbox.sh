@@ -10,6 +10,13 @@ LAST_HASH=""
 LAST_OUTBOX_HASH=""
 LAST_APPROVAL_HASH=""
 
+# GitHub認証（キーチェーンにない環境でも動くようにURLにトークンを埋め込む）
+GITHUB_TOKEN="${GITHUB_TOKEN:-$(git config --global github.token 2>/dev/null)}"
+if [ -n "$GITHUB_TOKEN" ]; then
+  git -C "$REPO_DIR" remote set-url origin \
+    "https://${GITHUB_TOKEN}@github.com/coretagishi-lab/claude-brain.git" 2>/dev/null
+fi
+
 log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
 }
