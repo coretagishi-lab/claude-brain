@@ -9,10 +9,30 @@ LOG_DIR="$REPO_DIR/logs"
 mkdir -p "$LOG_DIR" "$PLIST_DIR"
 chmod +x "$REPO_DIR/watch_inbox.sh"
 
-# ntfy.shトピックの設定
-NTFY_TOPIC="claude-brain-$(openssl rand -hex 6)"
-echo "$NTFY_TOPIC" > "$REPO_DIR/.ntfy_topic"
-echo ".ntfy_topic" >> "$REPO_DIR/.gitignore" 2>/dev/null || true
+# Discord Webhook URLの設定
+echo ""
+echo "=== Discord Webhook URL の設定 ==="
+echo ""
+echo "以下の手順でWebhook URLを取得してください："
+echo "1. Discordで通知を受けたいチャンネルを開く"
+echo "2. チャンネル設定 → 連携サービス → ウェブフック → 新しいウェブフック"
+echo "3. URLをコピー"
+echo ""
+read -p "Discord Webhook URLを貼り付けてください: " WEBHOOK_URL
+
+if [ -z "$WEBHOOK_URL" ]; then
+  echo "警告: Webhook URLが未入力です。後で設定する場合："
+  echo "  echo 'YOUR_WEBHOOK_URL' > $REPO_DIR/.discord_webhook"
+else
+  echo "$WEBHOOK_URL" > "$REPO_DIR/.discord_webhook"
+  echo "Webhook URL を保存しました（.discord_webhook）"
+
+  # 接続テスト
+  curl -s -H "Content-Type: application/json" \
+    -d '{"content": "✅ claude-brain セットアップ完了。このチャンネルで通知を受け取ります。"}' \
+    "$WEBHOOK_URL" > /dev/null 2>&1
+  echo "Discordにテスト通知を送信しました"
+fi
 
 # launchd plist生成
 cat > "$PLIST_FILE" << PLIST
@@ -46,24 +66,10 @@ cat > "$PLIST_FILE" << PLIST
 </plist>
 PLIST
 
-# launchd登録
 launchctl unload "$PLIST_FILE" 2>/dev/null
 launchctl load "$PLIST_FILE"
 
 echo ""
 echo "=== セットアップ完了 ==="
-echo ""
-echo "【スマホ通知の設定】"
-echo "1. スマホに「ntfy」アプリをインストール（iOS/Android 無料）"
-echo "   iOS: https://apps.apple.com/app/ntfy/id1625396347"
-echo "   Android: https://play.google.com/store/apps/details?id=io.heckel.ntfy"
-echo ""
-echo "2. アプリを開いて「+」ボタンでトピックを追加："
-echo "   トピック名: $NTFY_TOPIC"
-echo "   サーバー: ntfy.sh（デフォルト）"
-echo ""
-echo "3. これでapproval.mdが更新されるとスマホに通知が来ます"
-echo ""
-echo "【動作確認】"
 echo "launchctl list | grep claude-brain  で起動確認"
 echo "tail -f $LOG_DIR/watch.log  でログ確認"

@@ -1,6 +1,5 @@
-.ntfy_topic
+.discord_webhook
 .approval_hash
 logs/
 *.log
 .DS_Store
-.ntfy_topic
