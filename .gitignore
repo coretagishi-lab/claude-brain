@@ -1,0 +1,5 @@
+.ntfy_topic
+.approval_hash
+logs/
+*.log
+.DS_Store
