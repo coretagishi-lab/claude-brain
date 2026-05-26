@@ -44,17 +44,16 @@ process_inbox() {
   # 最新をpull
   git pull origin main --quiet 2>&1 | log "git pull: $(cat)"
 
-  # Claude Codeに実行させる
-  # inbox.mdの内容を読んでClaudeが自律実行
-  claude --print "
+  # Claude Codeに実行させる（dangerously-skip-permissions + stdin /dev/nullで自律実行）
+  claude --dangerously-skip-permissions --print "
 あなたは統括AIです。CLAUDE.mdのルールに従って動いてください。
 
-inbox.mdを読んで、未実行の指示を実行してください。
+inbox.mdを読んで、未実行の指示（[完了]マークがないもの）を実行してください。
 実行したらoutbox.mdに結果を報告し、inbox.mdの指示に [完了] マークをつけてください。
 すべての変更はgit commitしてpushしてください。
 
 作業ディレクトリ: $REPO_DIR
-" 2>&1 | tee -a "$OUTBOX"
+" < /dev/null 2>&1 | tee -a "$OUTBOX"
 
   check_approval_update
 }
