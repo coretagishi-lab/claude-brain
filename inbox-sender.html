@@ -255,6 +255,12 @@
     <div id="settings-sheet" onclick="event.stopPropagation()">
       <div class="sheet-handle"></div>
       <div class="sheet-title">⚙️ 設定</div>
+      <div id="token-badge" style="
+        font-size:12px; color:var(--muted);
+        background:var(--bg); border:1px solid var(--border);
+        border-radius:8px; padding:8px 12px; margin-bottom:4px;
+        font-family:'SF Mono',monospace; letter-spacing:.3px;
+      "></div>
       <div class="sheet-row">
         <button class="btn danger" onclick="resetToken()">
           🔑 トークンをリセット
@@ -294,6 +300,11 @@
 
     // ── 設定シート ───────────────────────────────────────
     function openSettings() {
+      const t = getToken();
+      const badge = document.getElementById('token-badge');
+      badge.textContent = t
+        ? `保存済み: ${'•'.repeat(Math.max(0, t.length - 4))}${t.slice(-4)}`
+        : '未設定';
       document.getElementById('settings-overlay').hidden = false;
     }
     function closeSettings() {
@@ -312,14 +323,24 @@
       el.className   = 'status' + (type ? ' ' + type : '');
     }
 
-    // ── トークン保存（テスト付き） ────────────────────────
+    // ── トークン保存（保存→テストの順） ─────────────────────
     async function saveToken() {
       const token = document.getElementById('token-input').value.trim();
       if (!token) return;
 
+      // 形式チェック（ネット不要）
+      if (!token.startsWith('ghp_') && !token.startsWith('github_pat_')) {
+        setStatus('setup-status', '❌ 形式が違います（ghp_ または github_pat_ で始まる文字列を入力してください）', 'err');
+        return;
+      }
+
+      // ── まず保存 ──────────────────────────────────────
+      localStorage.setItem(STORAGE_KEY, token);
+
+      // ── その後に接続テスト ─────────────────────────────
       const btn = document.getElementById('save-btn');
       btn.disabled    = true;
-      btn.textContent = '確認中…';
+      btn.textContent = '接続確認中…';
       setStatus('setup-status', '', '');
 
       try {
@@ -330,17 +351,27 @@
           }
         });
 
-        if (res.status === 401) throw new Error('トークンが無効です');
-        if (res.status === 403) throw new Error('権限不足 — Contents: Read & Write が必要です');
-        if (res.status !== 200 && res.status !== 404)
-          throw new Error(`接続エラー: ${res.status}`);
-
-        localStorage.setItem(STORAGE_KEY, token);
-        setStatus('setup-status', '✅ 接続確認OK！', 'ok');
-        setTimeout(showApp, 600);
+        if (res.status === 401) {
+          // 無効なトークンだったら削除してエラー
+          localStorage.removeItem(STORAGE_KEY);
+          throw new Error('トークンが無効です（401）');
+        }
+        if (res.status === 403) {
+          localStorage.removeItem(STORAGE_KEY);
+          throw new Error('権限不足 — Contents: Read & Write が必要です');
+        }
+        // 200（ファイルあり）/ 404（ファイル未作成）はどちらも正常
+        setStatus('setup-status', '✅ 保存・接続確認OK！', 'ok');
+        setTimeout(showApp, 500);
 
       } catch (e) {
-        setStatus('setup-status', '❌ ' + e.message, 'err');
+        if (e.message.includes('fetch') || e.name === 'TypeError') {
+          // ネットワークエラー: トークンは保存済みのままアプリへ進む
+          setStatus('setup-status', '⚠️ 接続テスト失敗（ネットワーク未確認）。トークンは保存しました。', 'info');
+          setTimeout(showApp, 1200);
+        } else {
+          setStatus('setup-status', '❌ ' + e.message, 'err');
+        }
       } finally {
         btn.disabled    = false;
         btn.textContent = '確認して保存';
