@@ -20,6 +20,8 @@
       --warn:    #f59e0b;
     }
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    /* hidden属性がdisplay:flexに負けないようにする（iOS Safari対策） */
+    [hidden] { display: none !important; }
 
     body {
       background: var(--bg);
@@ -148,12 +150,19 @@
     /* ── 設定シート（スライドアップ） ── */
     #settings-overlay {
       position: fixed; inset: 0;
-      background: rgba(0,0,0,.6);
-      backdrop-filter: blur(4px);
       display: flex; align-items: flex-end;
       z-index: 100;
     }
+    /* 背景タップで閉じる用ボタン（divではなくbuttonでiOS確実に反応） */
+    #settings-backdrop {
+      position: absolute; inset: 0;
+      background: rgba(0,0,0,.6);
+      backdrop-filter: blur(4px);
+      border: none; cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
     #settings-sheet {
+      position: relative; z-index: 1;
       width: 100%; max-width: 480px; margin: 0 auto;
       background: var(--surface);
       border: 1px solid var(--border);
@@ -225,7 +234,7 @@
         <div class="header-title">Inbox</div>
         <div class="header-sub">coretagishi-lab / claude-brain</div>
       </div>
-      <div class="gear-btn" onclick="openSettings()" title="設定">⚙️</div>
+      <button class="gear-btn" onclick="openSettings()" title="設定" aria-label="設定">⚙️</button>
     </div>
 
     <div class="card">
@@ -239,8 +248,11 @@
   <!-- ════════════════════════════════ -->
   <!-- 設定シート                        -->
   <!-- ════════════════════════════════ -->
-  <div id="settings-overlay" hidden onclick="closeSettings(event)">
-    <div id="settings-sheet">
+  <div id="settings-overlay" hidden>
+    <!-- 背景タップで閉じる -->
+    <button id="settings-backdrop" onclick="closeSettings()" aria-label="閉じる"></button>
+    <!-- シート本体（クリックがbackdropに伝播しないようstopPropagation） -->
+    <div id="settings-sheet" onclick="event.stopPropagation()">
       <div class="sheet-handle"></div>
       <div class="sheet-title">⚙️ 設定</div>
       <div class="sheet-row">
@@ -284,10 +296,8 @@
     function openSettings() {
       document.getElementById('settings-overlay').hidden = false;
     }
-    function closeSettings(e) {
-      if (!e || e.target === document.getElementById('settings-overlay')) {
-        document.getElementById('settings-overlay').hidden = true;
-      }
+    function closeSettings() {
+      document.getElementById('settings-overlay').hidden = true;
     }
     function resetToken() {
       closeSettings();
