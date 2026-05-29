@@ -427,7 +427,7 @@
         }
 
         const base    = oldContent.replace(/\n+$/, '');
-        const updated = (base || '# Inbox') + `\n- ${timestamp()} ${memo}`;
+        const updated = (base || '# Inbox Queue') + `\n- ${timestamp()} ${memo}`;
 
         const putRes = await fetch(API, {
           method: 'PUT', headers,
