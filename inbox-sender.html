@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+
+  <!-- ホーム画面に追加したときのPWA設定 -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Inbox">
+  <title>Inbox — claude-brain</title>
+
+  <style>
+    :root {
+      --bg:       #0d0d0f;
+      --surface:  #18181c;
+      --border:   #2c2c32;
+      --text:     #e8e8ed;
+      --muted:    #6c6c7a;
+      --accent:   #3b82f6;
+      --success:  #22c55e;
+      --error:    #ef4444;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', Helvetica, sans-serif;
+      min-height: 100svh;
+      padding:
+        max(env(safe-area-inset-top), 32px)
+        max(env(safe-area-inset-right), 20px)
+        max(env(safe-area-inset-bottom), 32px)
+        max(env(safe-area-inset-left), 20px);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
+    }
+
+    /* ── Header ── */
+    .header {
+      width: 100%;
+      max-width: 480px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .icon {
+      width: 44px; height: 44px;
+      background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+      border-radius: 10px;
+      display: grid; place-items: center;
+      font-size: 22px;
+      flex-shrink: 0;
+    }
+    .title   { font-size: 18px; font-weight: 700; letter-spacing: -0.4px; }
+    .subtitle{ font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+    /* ── Card ── */
+    .card {
+      width: 100%;
+      max-width: 480px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 160px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 16px;   /* 16px以上でiOSの自動ズームを防ぐ */
+      line-height: 1.6;
+      padding: 14px 16px;
+      resize: vertical;
+      outline: none;
+      transition: border-color 0.15s;
+      -webkit-appearance: none;
+    }
+    textarea:focus { border-color: var(--accent); }
+    textarea::placeholder { color: var(--muted); }
+
+    /* ── Button ── */
+    #btn {
+      width: 100%;
+      padding: 16px;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 12px;
+      font-size: 16px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      transition: opacity 0.15s, background 0.15s;
+      -webkit-tap-highlight-color: transparent;
+      letter-spacing: -0.2px;
+    }
+    #btn:active   { opacity: 0.8; }
+    #btn:disabled { opacity: 0.45; cursor: default; }
+    #btn.sending  { background: #1d4ed8; }
+
+    /* ── Status ── */
+    #status {
+      display: none;
+      padding: 11px 14px;
+      border-radius: 10px;
+      font-size: 14px;
+      line-height: 1.4;
+      font-weight: 500;
+    }
+    #status.ok {
+      display: block;
+      background: rgba(34,197,94,.13);
+      color: var(--success);
+      border: 1px solid rgba(34,197,94,.3);
+    }
+    #status.err {
+      display: block;
+      background: rgba(239,68,68,.13);
+      color: var(--error);
+      border: 1px solid rgba(239,68,68,.3);
+    }
+
+    /* ── Hint ── */
+    .hint {
+      font-size: 11px;
+      color: var(--muted);
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div class="icon">📥</div>
+    <div>
+      <div class="title">Inbox</div>
+      <div class="subtitle">coretagishi-lab / claude-brain</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <textarea id="memo" placeholder="追加するメモを入力…" autofocus></textarea>
+    <button id="btn" onclick="send()">Inboxに追加</button>
+    <div id="status"></div>
+  </div>
+
+  <p class="hint">Cmd+Enter でも送信できます</p>
+
+  <script>
+    // ── 設定 ──────────────────────────────────────────────
+    const TOKEN = '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';
+    const API   = 'https://api.github.com/repos/coretagishi-lab/claude-brain/contents/Inbox/inbox.md';
+
+    // ── ユーティリティ ───────────────────────────────────
+    function b64Encode(str) {
+      const bytes = new TextEncoder().encode(str);
+      let bin = '';
+      for (const b of bytes) bin += String.fromCharCode(b);
+      return btoa(bin);
+    }
+
+    function b64Decode(b64) {
+      const bin = atob(b64.replace(/\s/g, ''));
+      const bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
+      return new TextDecoder().decode(bytes);
+    }
+
+    function timestamp() {
+      const d = new Date();
+      const p = n => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+    }
+
+    function setStatus(msg, type) {
+      const el = document.getElementById('status');
+      el.textContent = msg;
+      el.className = type;
+    }
+
+    // ── 送信処理 ─────────────────────────────────────────
+    async function send() {
+      const memo = document.getElementById('memo').value.trim();
+      if (!memo) return;
+
+      const btn = document.getElementById('btn');
+      btn.disabled = true;
+      btn.textContent = '送信中…';
+      btn.classList.add('sending');
+      document.getElementById('status').className = '';
+
+      const headers = {
+        'Authorization': `token ${TOKEN}`,
+        'Accept':        'application/vnd.github.v3+json',
+        'Content-Type':  'application/json',
+      };
+
+      try {
+        // 現在のファイルを取得（SHA と既存内容が必要）
+        const getRes = await fetch(API, { headers });
+
+        let oldContent = '';
+        let sha = null;
+
+        if (getRes.ok) {
+          const data = await getRes.json();
+          oldContent = b64Decode(data.content);
+          sha = data.sha;
+        } else if (getRes.status !== 404) {
+          const err = await getRes.json().catch(() => ({}));
+          throw new Error(err.message || `GET ${getRes.status}`);
+        }
+
+        // 末尾の空行を整えて新エントリを追記
+        const base    = oldContent.replace(/\n+$/, '');
+        const entry   = `\n- ${timestamp()} ${memo}`;
+        const updated = (base || '# Inbox') + entry;
+
+        // ファイルを更新
+        const putBody = {
+          message: 'Add inbox entry via iPhone',
+          content: b64Encode(updated),
+          ...(sha ? { sha } : {}),
+        };
+
+        const putRes = await fetch(API, {
+          method: 'PUT',
+          headers,
+          body: JSON.stringify(putBody),
+        });
+
+        if (!putRes.ok) {
+          const err = await putRes.json().catch(() => ({}));
+          throw new Error(err.message || `PUT ${putRes.status}`);
+        }
+
+        setStatus('✅ Inboxに追加しました！', 'ok');
+        document.getElementById('memo').value = '';
+        document.getElementById('memo').focus();
+
+      } catch (e) {
+        setStatus('❌ ' + e.message, 'err');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Inboxに追加';
+        btn.classList.remove('sending');
+      }
+    }
+
+    // Cmd+Enter / Ctrl+Enter でも送信
+    document.getElementById('memo').addEventListener('keydown', e => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') send();
+    });
+  </script>
+
+</body>
+</html>
