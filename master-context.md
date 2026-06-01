@@ -1,8 +1,8 @@
 ---
 type: master-context
 title: システム全体設計・運用ルール
-updated: 2026-06-01
-version: 1.1
+updated: 2026-06-02
+version: 1.2
 ---
 
 # Master Context — AI-Brain 運用マニュアル
@@ -155,19 +155,33 @@ version: 1.1
 | Notion MCP | 🔲 次回接続予定 | タスク確認ボード・承認フロー |
 | Slack MCP | 🔲 接続可能（未設定） | 通知・連絡 |
 
-### VPS稼働サービス
+### VPS稼働サービス（2026-06-02 時点）
 
-| サービス | 間隔 | 状態 |
-|---|---|---|
-| `ai-brain-sync.timer` | 30分 | ✅ 稼働中 |
-| `ai-brain-memory-monitor.timer` | 60秒 | ✅ 稼働中（800MB超でDiscord通知） |
-| `ai-brain-conoha-monitor.timer` | 6時間 | ⚠️ APIユーザー認証エラー中 |
+| サービス | 種別 | 間隔/常駐 | 状態 |
+|---|---|---|---|
+| `ai-brain-sync.timer` | timer | 30分 | ✅ 稼働中 |
+| `ai-brain-memory-monitor.timer` | timer | 60秒 | ✅ 稼働中（800MB超でDiscord通知） |
+| `ai-brain-auth-monitor.timer` | timer | 5分 | ✅ 稼働中（修復失敗→Notion待機タスク） |
+| `ai-brain-morning-report.timer` | timer | 毎朝8時 | ✅ 稼働中（Discord日次レポート） |
+| `ai-brain-discord-responder.service` | 常駐 | — | ✅ 稼働中（1/2返信受付） |
+| `ai-brain-conoha-monitor.timer` | timer | 6時間 | ⚠️ APIパスワード再設定待ち（後回し） |
+
+### VPS スクリプト一覧（Shared/Workflows/）
+
+| スクリプト | 役割 |
+|---|---|
+| `cred-loader.py` | tokens.md → .env + .profile 自動生成 |
+| `auth-monitor.py` | 認証エラー検出・自己修復・失敗時Notion登録 |
+| `morning-report.py` | Discord日次レポート（VPS状態・Notion・YouTube・API料金） |
+| `discord-responder.py` | 1/2返信受付Bot（APIゼロ・Claude不使用） |
+| `discord-ask.py` | VPSから質問送信 + pending登録 |
+| `vps-task-reporter.py` | 自己解決不能問題をNotion待機タスクに登録 |
+| `vps-task-checker.py` | Mac側でNotion待機タスクを確認・処理 |
 
 ### VPS未完了タスク（対応待ち）
 
-- [ ] `ANTHROPIC_API_KEY` を VPS `/root/.bashrc` に追記
+- [ ] ConoHa APIパスワード再設定 → 残高監視有効化（tagishi 手動作業）
 - [ ] VPS 日本語ロケール設定（`locale-gen ja_JP.UTF-8`）
-- [ ] ConoHa APIパスワード再設定 → 残高監視有効化
 
 ### ツールスタック
 
