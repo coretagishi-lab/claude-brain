@@ -1,7 +1,7 @@
 ---
 type: todo
 title: TODOリスト
-updated: 2026-06-01
+updated: 2026-06-02
 ---
 
 # TODO
@@ -38,28 +38,34 @@ updated: 2026-06-01
 
 ## 完了済み
 
-### インフラ・VPS（2026-06-01）
+### Discord・通知システム（2026-06-02）
+
+- [x] `discord-responder.py` 実装（1/2 返信のみ受付・Claude API ゼロ・常駐 systemd service）
+- [x] `discord-ask.py` 実装（VPS から質問送信 + pending 登録）
+- [x] Discord Bot を最小限で復活（api_zero → 即実行 / api_needed → Notion キュー / 2 → 保留）
+- [x] `morning-report.py` 実装（毎朝8時 Discord 日次レポート・systemd timer）
+- [x] Discord Bot 旧版（双方向・Claude Opus 使用）を廃止・アーカイブ
+
+### インフラ・VPS（2026-06-01〜02）
 
 - [x] ConoHa VPS セットアップ・SSH 接続確認（133.88.117.175）
 - [x] tmux インストール・永続セッション設定
-- [x] systemd タイマー4本稼働（sync / memory-monitor / auth-monitor / conoha-monitor）
-- [x] `/opt/ai-brain/.credentials/tokens.md` 一元認証管理システム構築
-- [x] `cred-loader.py` 実装（tokens.md → .env + .profile 自動生成）
-- [x] `auth-monitor.py` 実装（認証エラー自動検出 → tokens.md 参照 → 自己修復）
-- [x] 既存サービスの EnvironmentFile を .profile（無効）から .env（systemd 対応）に修正
-- [x] 毎朝8時 Discord 日次レポート実装（`morning-report.py` + systemd timer）
-- [x] Discord 双方向通信 Bot を廃止 → webhook 通知のみに変更（API コスト削減）
+- [x] systemd タイマー5本稼働（sync / memory-monitor / auth-monitor / conoha-monitor / morning-report）
+- [x] `/opt/ai-brain/.credentials/tokens.md` 一元認証管理（GITHUB / DISCORD / CONOHA / ANTHROPIC / NOTION / YOUTUBE）
+- [x] `cred-loader.py` 実装（tokens.md → systemd対応 .env + .profile 自動生成）
+- [x] `auth-monitor.py` 実装（認証エラー自動検出 → 自己修復 → 失敗時 Notion 待機タスク登録）
+- [x] 既存サービスの EnvironmentFile を .env（systemd 対応形式）に統一・sync 正常化
 
-### VPS 待機タスクシステム（2026-06-01）
+### VPS 待機タスクシステム（2026-06-01〜02）
 
 - [x] `vps-task-reporter.py` 実装（VPS 自己解決不能 → Notion 待機タスク登録 + Discord 通知）
 - [x] `vps-task-checker.py` 実装（Mac Claude Code がセッション開始時に Notion 確認・処理）
 - [x] auth-monitor と vps-task-reporter を連携（修復失敗時に自動登録）
 
-### ドキュメント整備（2026-06-01）
+### ドキュメント整備（2026-06-01〜02）
 
-- [x] `master-context.md` 作成（システム全体設計・運用ルール・確認フォーマット）
-- [x] `CLAUDE.md` v4.4 整備（自律判断ルール・ConoHa後回しルール・認証自己修復フロー）
+- [x] `master-context.md` v1.1 作成（システム全体設計・運用ルール・漫画アフィリエイトフロー）
+- [x] `CLAUDE.md` v4.4 整備（自律判断ルール・確認ゼロ化・ConoHa後回し・認証自己修復）
 - [x] 漫画アフィリエイト完全フロー設計・記録（8ステップ・VPS APIゼロ・experience.md 構造）
 - [x] `.gitignore` 作成（`.credentials/` を GitHub から除外）
 
