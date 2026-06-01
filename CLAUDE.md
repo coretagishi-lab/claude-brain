@@ -122,10 +122,21 @@ python3 /opt/ai-brain/Shared/Workflows/cred-loader.py --update-profile
 
 | サービス | 間隔 | 状態 |
 |---|---|---|
-| `ai-brain-sync.timer` | 30分 | ✅ 稼働中（EnvironmentFile修正済み） |
+| `ai-brain-sync.timer` | 30分 | ✅ 稼働中 |
 | `ai-brain-memory-monitor.timer` | 60秒 | ✅ 稼働中（800MB超でDiscord通知） |
-| `ai-brain-auth-monitor.timer` | 5分 | ✅ 稼働中（認証エラー自己修復） |
+| `ai-brain-auth-monitor.timer` | 5分 | ✅ 稼働中（修復失敗時 → Notion 待機タスク登録） |
 | `ai-brain-conoha-monitor.timer` | 6時間 | ⚠️ ConoHa APIパスワード再設定待ち（後回し） |
+
+### Discord の役割（通知のみ）
+
+Discord は **webhook による一方向通知のみ**。受信・コマンド実行は廃止済み。
+
+| 通知種別 | 送信元スクリプト |
+|---|---|
+| メモリ警告 | `memory-monitor.py` |
+| 認証エラー自動修復完了 | `auth-monitor.py` |
+| 残高警告 | `conoha-balance-monitor.py` |
+| VPS 待機タスク登録 | `vps-task-reporter.py` |
 
 ### 未完了タスク
 
@@ -181,33 +192,52 @@ Googleドライブの画像は非公開のため、Canvaに直接URLを渡せな
 
 ---
 
-## Inboxキュープロトコル（セッション開始時に必ず確認）
+## セッション開始 — 事前チェック（Step 1〜4 の前に必ず実行）
 
-セッション開始時、Step 1〜4の前に以下を実行する:
+### チェック① VPS 待機タスク確認
+
+```bash
+python3 Shared/Workflows/vps-task-checker.py
+```
+
+| 結果 | 対応 |
+|---|---|
+| `✅ VPS待機タスクなし` | 次のチェックへ進む |
+| `⏳ VPS待機タスク N 件` | **その場で処理する**（セッション本来の目的より優先） |
+
+**VPS 待機タスクの処理手順:**
+```bash
+# 1. 詳細を確認
+python3 Shared/Workflows/vps-task-checker.py --detail
+
+# 2. 問題を調査・修正する（Claude Code で対応）
+
+# 3. 解決済みにする
+python3 Shared/Workflows/vps-task-checker.py \
+  --complete <PAGE_ID> --resolution "解決内容"
+```
+
+### チェック② Inbox キュー確認
 
 ```bash
 python3 Shared/Workflows/queue.py status
 ```
 
-- **pending/wipが0件** → 通常のセッション開始プロトコルへ進む
-- **pendingが1件以上** → ユーザーに「Inboxに〇件のタスクがあります。処理しますか？」と確認する
-- **wipが1件** → 「処理中のタスクがあります: [タスク内容]。続けて処理しますか？」と確認する
+| 結果 | 対応 |
+|---|---|
+| pending/wip が 0件 | 通常のセッション開始プロトコル（Step 1〜4）へ進む |
+| pending が 1件以上 | 「Inboxに〇件のタスクがあります。処理しますか？」と確認する |
+| wip が 1件 | 「処理中タスクあり: [内容]。続けて処理しますか？」と確認する |
 
-### キュー処理手順（1タスクずつ）
+### Inbox キュー処理手順
 
 ```bash
-# 1. 次のタスクを取得（GitHub上で⏳マークが付く）
-python3 Shared/Workflows/queue.py next
-
-# 2. タスクを実行する（Claude が処理）
-
-# 3. 完了マーク（GitHub上で✅マークが付く）
-python3 Shared/Workflows/queue.py done "完了メモ"
-
-# 4. 次のタスクがあれば繰り返す
+python3 Shared/Workflows/queue.py next   # 次タスクを取得
+# → 処理する
+python3 Shared/Workflows/queue.py done "完了メモ"  # 完了マーク
 ```
 
-**ルール:** `⏳`が存在する間は`next`を実行しない。必ず1タスク完了してから次へ進む。
+**ルール:** `⏳` が存在する間は `next` を実行しない。1タスク完了してから次へ。
 
 ---
 
