@@ -30,6 +30,7 @@ KEY_MAP: dict[str, dict[str, str]] = {
     },
     "ANTHROPIC": {"API_KEY": "ANTHROPIC_API_KEY"},
     "NOTION":    {"TOKEN": "NOTION_TOKEN"},
+    "YOUTUBE":   {"API_KEY": "YOUTUBE_API_KEY", "CHANNEL_ID": "YOUTUBE_CHANNEL_ID"},
 }
 
 _PLACEHOLDER = {"", "YOUR_VALUE_HERE", "xxx", "---", "your_value_here"}
