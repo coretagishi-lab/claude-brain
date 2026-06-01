@@ -21,7 +21,12 @@ PROFILE   = Path("/root/.profile")
 # tokens.md セクション名 + キー名 → 環境変数名
 KEY_MAP: dict[str, dict[str, str]] = {
     "GITHUB":    {"PAT": "GITHUB_TOKEN"},
-    "DISCORD":   {"WEBHOOK_URL": "DISCORD_WEBHOOK_URL"},
+    "DISCORD":   {
+        "WEBHOOK_URL": "DISCORD_WEBHOOK_URL",
+        "BOT_TOKEN":   "DISCORD_BOT_TOKEN",
+        "CHANNEL_ID":  "DISCORD_BOT_CHANNEL_ID",
+        "OWNER_ID":    "DISCORD_OWNER_ID",
+    },
     "CONOHA":    {
         "USERNAME":  "CONOHA_USERNAME",
         "PASSWORD":  "CONOHA_PASSWORD",
