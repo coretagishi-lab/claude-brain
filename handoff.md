@@ -42,7 +42,7 @@ tagishi
 
 ## 2026-06-02 完成したもの
 
-### VPS 稼働中サービス（全6本）
+### VPS 稼働中サービス（全7本）
 
 | サービス | 内容 | 状態 |
 |---|---|---|
@@ -50,58 +50,64 @@ tagishi
 | `ai-brain-memory-monitor.timer` | メモリ監視・800MB超でDiscord通知 | ✅ |
 | `ai-brain-auth-monitor.timer` | 5分ごと認証エラー検出・自己修復 | ✅ |
 | `ai-brain-morning-report.timer` | 毎朝8時 Discord日次レポート | ✅ |
-| `ai-brain-discord-responder.service` | 旧Bot（1/2返信受付・後で統合予定） | ✅ |
-| `ai-brain-dmm-discord-watcher.service` | `#dmm-素材投稿`監視→Notionキュー登録 | ✅ 稼働中 |
+| `ai-brain-discord-responder.service` | 旧Bot（後で統合予定） | ✅ |
+| `ai-brain-dmm-discord-watcher.service` | `#dmm-素材投稿`監視→Notionキュー登録 | ✅ |
+| `ai-brain-discord-inbox-bot.service` | `#inbox`ルーター（URL分析・即実行・Notionキュー） | ✅ |
+
+### Mac launchd（30分おき自動実行）
+
+| ジョブ | 役割 |
+|---|---|
+| `com.ai-brain.queue-processor` | Notion queued → Claude API台本生成 → draft |
+| `com.ai-brain.canva-instructions` | Notion approved → Canva配置指示JSON → canva_pending |
 
 ### 実装済みスクリプト（dmm-manga-affiliate）
 
-| ファイル | 役割 |
-|---|---|
-| `Workflows/dmm-discord-watcher.py` | STEP 2: #dmm-素材投稿 監視→Notionキュー登録 |
-| `Workflows/generate-content.py` | STEP 3: Claude API→台本・タイトル・説明文→Notion |
-| `Workflows/vps-assemble-video.py` | STEP 6: VOICEVOX+ffmpeg動画生成（骨格） |
-| `Workflows/vps-youtube-upload.py` | STEP 8: YouTube自動投稿（骨格） |
-| `Knowledge/experience.md` | 台本品質改善ログ |
+| ファイル | 役割 | STEP |
+|---|---|---|
+| `Workflows/dmm-discord-watcher.py` | #dmm-素材投稿 監視→Notionキュー | 2 |
+| `Workflows/queue-processor.py` | queued→Claude API台本生成→draft | 3 |
+| `Workflows/canva-instructions.py` | approved→Canva配置指示→canva_pending | 5 |
+| `Workflows/vps-assemble-video.py` | VOICEVOX+ffmpeg動画生成（骨格） | 6 |
+| `Workflows/vps-youtube-upload.py` | YouTube+X自動投稿（骨格） | 8 |
+| `Knowledge/experience.md` | 台本品質改善ログ | — |
 
 ### Notion コンテンツ審査 DB
 
-`NOTION_CONTENT_DB_ID=3731cad4aa98810e82f8c0f99a483cbb`（VPS・ローカル設定済み）
+`NOTION_CONTENT_DB_ID=3731cad4aa98810e82f8c0f99a483cbb`
 
-ステータス遷移: `queued → draft → approved → canva_ready → final → uploaded`
+ステータス遷移: `queued → draft → approved → canva_pending → canva_ready → final → uploaded`
 
 ---
 
-## dmm-manga-affiliate 9ステップフロー（詳細はmaster-context.md セクション9）
+## dmm-manga-affiliate 9ステップフロー
 
 ```
 tagishi: #dmm-素材投稿 に画像+タイトル+アフィURL投稿
-  → [VPS] Bot検知 → Notion（queued）
-  → [Mac定時] Claude API台本生成 → Notion（draft）
+  → [VPS Bot] Notion（queued）
+  → [Mac 30分おき] Claude API台本生成 → Notion（draft）
   → [tagishi] Notion承認（approved）
-  → [Mac定時] Canva配置指示生成 → VPSトリガー
-  → [VPS] Canva組立 → Notion（canva_ready）
+  → [Mac 30分おき] Canva配置指示生成 → Notion（canva_pending）
+  → [VPS] Canva組立 → Notion（canva_ready）  ← dmm-canva-assembler.py（未実装）
   → [tagishi] Canva確認（final）
-  → [VPS] YouTube + X投稿（uploaded）
-  → [VPS定期] Analytics → Notion記録
+  → [VPS] YouTube + X投稿（uploaded）          ← dmm-publisher.py（未実装）
+  → [VPS定期] Analytics → Notion記録           ← dmm-analytics.py（未実装）
 ```
 
 ---
 
 ## 次にやること（優先順）
 
-1. **`#inbox` Bot実装**（API不要即実行 / API必要キュー登録のルーター）
-   - `Shared/Workflows/discord-inbox-bot.py` を新規作成
-   - `ai-brain-discord-inbox-bot.service` でVPS常駐
-   - `#通知` チャンネルへの送信ヘルパーも同スクリプト内に実装
-
-2. **Mac定時処理スクリプト実装（STEP 3・5）**
-   - `queue-processor.py`: Notion queued → Claude API台本生成 → draft
-   - `canva-instructions.py`: Notion approved → Canva配置指示 → VPSトリガー
-   - launchd plistで30分おき自動実行
-
-3. **ANTHROPIC_API_KEY 更新**（現在401エラー）
+1. **ANTHROPIC_API_KEY 更新**（現在401エラー）
    - console.anthropic.com で新しいキーを発行
    - VPS tokens.md + ローカル ~/.zshrc を更新
+   - 更新後: `python3 queue-processor.py` で動作確認
+
+2. **VPS Canva組立スクリプト実装（STEP 6）**
+   - `dmm-canva-assembler.py`: canva_pending→Canva REST API→canva_ready
+
+3. **VPS YouTube+X投稿スクリプト実装（STEP 8）**
+   - `dmm-publisher.py`（骨格実装済み、OAuth設定が必要）
 
 4. **ConoHa APIパスワード再設定**（tagishi手動）→ 残高監視有効化
 

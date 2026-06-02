@@ -2,7 +2,7 @@
 type: master-context
 title: システム全体設計・運用ルール
 updated: 2026-06-02
-version: 1.5
+version: 1.6
 ---
 
 # Master Context — AI-Brain 運用マニュアル
@@ -382,21 +382,28 @@ DB ID: `3731cad4aa98810e82f8c0f99a483cbb`
 
 ---
 
-### Mac定時処理スクリプト（launchd管理）
+### Mac定時処理スクリプト（launchd管理・稼働中）
 
-| スクリプト | 実行間隔 | 役割 |
-|---|---|---|
-| `queue-processor.py` | 30分おき | queued → Claude API台本生成 → draft |
-| `canva-instructions.py` | 30分おき | approved → Canva配置指示生成 → VPSトリガー |
+| スクリプト | launchd Label | 実行間隔 | 役割 |
+|---|---|---|---|
+| `queue-processor.py` | `com.ai-brain.queue-processor` | 30分おき | queued → Claude API台本生成（画像付き） → draft |
+| `canva-instructions.py` | `com.ai-brain.canva-instructions` | 30分おき | approved → Canva配置指示JSON生成 → canva_pending |
 
 ### VPS専用スクリプト（dmm-manga-affiliate）
 
-| スクリプト | 役割 |
-|---|---|
-| `dmm-discord-watcher.py` | Discord Bot: 画像+テキスト取得→Notionキュー登録 |
-| `dmm-canva-assembler.py` | Notionから配置指示取得→Canva組立→URL記録 |
-| `dmm-publisher.py` | Canva動画DL→YouTube + X投稿→Notion記録 |
-| `dmm-analytics.py` | YouTubeアナリティクス取得→Notion記録（定期実行） |
+| スクリプト | 役割 | 状態 |
+|---|---|---|
+| `dmm-discord-watcher.py` | #dmm-素材投稿 監視→Notionキュー登録 | ✅ 稼働中 |
+| `dmm-canva-assembler.py` | canva_pending→Canva REST API組立→canva_ready | ❌ 未実装 |
+| `dmm-publisher.py` | Canva動画DL→YouTube + X投稿（骨格） | ⚠️ 骨格のみ |
+| `dmm-analytics.py` | YouTubeアナリティクス→Notion記録 | ❌ 未実装 |
+
+### #inbox URL分析機能（discord-inbox-bot.py に組み込み済み）
+
+| URL種別 | 収集内容 | ツール |
+|---|---|---|
+| YouTube | タイトル・説明文・字幕・上位コメント・タグ・視聴数 | yt-dlp |
+| Instagram | キャプション・投稿者・いいね数 | yt-dlp / instaloader |
 
 ---
 
