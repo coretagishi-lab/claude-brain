@@ -112,20 +112,23 @@ def parse_vtt(content: str) -> str:
 
 def _ytdlp_fetch_json(cmd_args: list, url: str, timeout: int = 90) -> tuple:
     """
-    yt-dlp --dump-json を実行。クッキーありで失敗した場合はなしでリトライ。
+    yt-dlp --dump-json を実行。
+    1. クッキー + EJSソルバー（node + remote-components）で試行
+    2. 失敗した場合はクッキーなしでリトライ（bot検知されない公開URLの場合）
     Returns: (data_dict, used_cookies: bool)
     """
     base = ["yt-dlp", "--dump-json", "--skip-download", "--no-playlist", "--no-warnings"]
+    ejs_args = ["--js-runtimes", "node", "--remote-components", "ejs:github"]
 
-    # クッキーありで試行
+    # クッキー + EJSソルバーで試行
     if os.path.exists(YTDLP_COOKIES):
-        raw = run(base + cmd_args + ["--cookies", YTDLP_COOKIES, url], timeout=timeout)
+        raw = run(base + ejs_args + cmd_args + ["--cookies", YTDLP_COOKIES, url], timeout=timeout)
         try:
             return json.loads(raw), True
         except json.JSONDecodeError:
             pass  # フォールバックへ
 
-    # クッキーなしで再試行
+    # クッキーなしで再試行（公開動画・EJS不要の場合）
     raw = run(base + cmd_args + [url], timeout=timeout)
     try:
         return json.loads(raw), False
@@ -155,14 +158,15 @@ def analyze_youtube(url: str) -> str:
         upload_date = f"{ud[:4]}-{ud[4:6]}-{ud[6:]}" if len(ud) == 8 else ud
         comments    = data.get("comments") or []
 
-        # 2. 字幕ダウンロード（クッキーありで試行、失敗時はなし）
+        # 2. 字幕ダウンロード（クッキー + EJSソルバーで試行、失敗時はなし）
         sub_cmd = ["yt-dlp", "--write-subs", "--write-auto-subs",
                    "--sub-lang", "ja.*,en.*", "--sub-format", "vtt",
-                   "--skip-download", "--no-playlist", "--no-warnings"]
+                   "--skip-download", "--no-playlist", "--no-warnings",
+                   "--js-runtimes", "node", "--remote-components", "ejs:github"]
         if os.path.exists(YTDLP_COOKIES):
-            run(sub_cmd + ["--cookies", YTDLP_COOKIES, "-o", f"{work}/sub", url], timeout=40)
+            run(sub_cmd + ["--cookies", YTDLP_COOKIES, "-o", f"{work}/sub", url], timeout=60)
         if not any(f.endswith(".vtt") for f in os.listdir(work)):
-            run(sub_cmd + ["-o", f"{work}/sub", url], timeout=40)
+            run(sub_cmd + ["-o", f"{work}/sub", url], timeout=60)
         subtitle_text = ""
         for fname in sorted(os.listdir(work)):
             if fname.endswith(".vtt"):
