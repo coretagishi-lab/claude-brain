@@ -16,14 +16,12 @@ updated: 2026-06-02
 tagishi
   └─ Discord に投げるだけ
        │
-       ├─ #inbox           タスク・指示・メモ
+       ├─ #inbox           タスク・指示・メモ / YouTube・Instagram URL分析
        ├─ #dmm-素材投稿    漫画コマ画像 + タイトル + アフィURL
        └─ #通知            VPS実行結果・Bot返信（読み取り専用）
             │
-            ├─ API不要 → VPS Bot 即実行 → #通知に返信
-            │
-            └─ API必要 → Notionキュー（queued）
-                              └─ 次回 Claude Code セッションで処理
+            ├─ API不要 → VPS Bot 即実行 → #通知 or #inbox にリプライ
+            └─ API必要 → Notionキュー（queued） → Mac定時処理（30分おき）
 ```
 
 **原則: tagishiはDiscordに投げるだけ。GitHubキュー・ファイルInbox廃止。**
@@ -32,17 +30,15 @@ tagishi
 
 ## Discord チャンネル一覧（確定）
 
-| チャンネル | ID | 用途 |
+| チャンネル | ID | Bot |
 |---|---|---|
-| `#inbox` | `1511214415611953214` | 全入力。API不要→即実行、API必要→Notionキュー |
-| `#dmm-素材投稿` | `1511211307788144650` | 漫画素材投稿→Notionキュー（queued） |
-| `#通知` | `1511214417990254664` | VPS実行結果・アラート出力専用 |
+| `#inbox` | `1511214415611953214` | discord-inbox-bot ✅ |
+| `#dmm-素材投稿` | `1511211307788144650` | dmm-discord-watcher ✅ |
+| `#通知` | `1511214417990254664` | 出力専用 |
 
 ---
 
-## 2026-06-02 完成したもの
-
-### VPS 稼働中サービス（全7本）
+## VPS 稼働中サービス（全7本）
 
 | サービス | 内容 | 状態 |
 |---|---|---|
@@ -51,90 +47,87 @@ tagishi
 | `ai-brain-auth-monitor.timer` | 5分ごと認証エラー検出・自己修復 | ✅ |
 | `ai-brain-morning-report.timer` | 毎朝8時 Discord日次レポート | ✅ |
 | `ai-brain-discord-responder.service` | 旧Bot（後で統合予定） | ✅ |
-| `ai-brain-dmm-discord-watcher.service` | `#dmm-素材投稿`監視→Notionキュー登録 | ✅ |
-| `ai-brain-discord-inbox-bot.service` | `#inbox`ルーター（URL分析・即実行・Notionキュー） | ✅ |
-
-### Mac launchd（30分おき自動実行）
-
-| ジョブ | 役割 |
-|---|---|
-| `com.ai-brain.queue-processor` | Notion queued → Claude API台本生成 → draft |
-| `com.ai-brain.canva-instructions` | Notion approved → Canva配置指示JSON → canva_pending |
-
-### 実装済みスクリプト（dmm-manga-affiliate）
-
-| ファイル | 役割 | STEP |
-|---|---|---|
-| `Workflows/dmm-discord-watcher.py` | #dmm-素材投稿 監視→Notionキュー | 2 |
-| `Workflows/queue-processor.py` | queued→Claude API台本生成→draft | 3 |
-| `Workflows/canva-instructions.py` | approved→Canva配置指示→canva_pending | 5 |
-| `Workflows/vps-assemble-video.py` | VOICEVOX+ffmpeg動画生成（骨格） | 6 |
-| `Workflows/vps-youtube-upload.py` | YouTube+X自動投稿（骨格） | 8 |
-| `Knowledge/experience.md` | 台本品質改善ログ | — |
-
-### Notion コンテンツ審査 DB
-
-`NOTION_CONTENT_DB_ID=3731cad4aa98810e82f8c0f99a483cbb`
-
-ステータス遷移: `queued → draft → approved → canva_pending → canva_ready → final → uploaded`
+| `ai-brain-dmm-discord-watcher.service` | `#dmm-素材投稿`監視→Notionキュー | ✅ |
+| `ai-brain-discord-inbox-bot.service` | `#inbox`ルーター・URL分析 | ✅ |
 
 ---
 
-## dmm-manga-affiliate 9ステップフロー
+## Mac launchd ジョブ（自動実行）
 
+| ジョブ | スケジュール | 役割 |
+|---|---|---|
+| `com.ai-brain.queue-processor` | 30分おき | Notion queued → Claude API台本生成 → draft |
+| `com.ai-brain.canva-instructions` | 30分おき | Notion approved → Canva配置指示 → canva_pending |
+| `com.ai-brain.mac-config-sync` | 毎日3:00 | ~/.zshrc をマスクしてVaultに保存 |
+| `com.ai-brain.sync-youtube-cookies` | 毎週月曜3:00 | youtube-cookies.txt をVPSに転送 |
+| `com.ai-brain.sync` | （Mac側の旧sync・確認要） | — |
+
+---
+
+## discord-inbox-bot の主な機能
+
+| 機能 | コマンド例 | 動作 |
+|---|---|---|
+| URL分析 | YouTube/Instagram URL貼り付け | yt-dlp で全情報収集→#通知に送信（📋コピーボタン付き） |
+| サービス確認 | `status` | VPSサービス一覧を返信 |
+| 同期 | `sync` | ai-brain-sync を即時実行 |
+| 再起動 | `restart <サービス名>` | systemctl restart |
+| ログ確認 | `log <サービス名>` | journalctl 最新20行 |
+| メモ保存 | `メモ: <内容>` | Notionに保存 |
+| Notionキュー | その他のメッセージ | 次回ターミナル起動時に処理 |
+
+**URL分析の技術スタック:**
+- yt-dlp + `--js-runtimes node --remote-components ejs:github`（EJSチャレンジ解決）
+- クッキー: `/opt/ai-brain/.credentials/youtube-cookies.txt`（Mac→VPS 週1自動転送）
+- 字幕: 日本語優先 → 英語フォールバック
+- 取得内容: タイトル・説明文・説明文内ドメイン・チャプター・字幕・上位コメント
+
+---
+
+## dmm-manga-affiliate パイプライン状況
+
+**Notion DB:** `NOTION_CONTENT_DB_ID=3731cad4aa98810e82f8c0f99a483cbb`
+
+**ステータス遷移:**
 ```
-tagishi: #dmm-素材投稿 に画像+タイトル+アフィURL投稿
-  → [VPS Bot] Notion（queued）
-  → [Mac 30分おき] Claude API台本生成 → Notion（draft）
-  → [tagishi] Notion承認（approved）
-  → [Mac 30分おき] Canva配置指示生成 → Notion（canva_pending）
-  → [VPS] Canva組立 → Notion（canva_ready）  ← dmm-canva-assembler.py（未実装）
-  → [tagishi] Canva確認（final）
-  → [VPS] YouTube + X投稿（uploaded）          ← dmm-publisher.py（未実装）
-  → [VPS定期] Analytics → Notion記録           ← dmm-analytics.py（未実装）
+queued → draft → approved → canva_pending → canva_ready → final → uploaded
+  ↑         ↑        ↑            ↑              ↑           ↑        ↑
+VPS Bot  Mac定時  tagishi     Mac定時          VPS       tagishi  VPS投稿
+(済み)   (済み)            (済み)           (未実装)            (未実装)
 ```
+
+**実装済みスクリプト:**
+
+| ファイル | 役割 | STEP |
+|---|---|---|
+| `Workflows/dmm-discord-watcher.py` | #dmm-素材投稿 → Notionキュー | 2 ✅ |
+| `Workflows/queue-processor.py` | queued → Claude API台本 → draft | 3 ✅ |
+| `Workflows/canva-instructions.py` | approved → Canva配置指示 → canva_pending | 5 ✅ |
+| `Workflows/vps-assemble-video.py` | 骨格のみ | 6 ⚠️ |
+| `Workflows/vps-youtube-upload.py` | 骨格のみ | 8 ⚠️ |
 
 ---
 
 ## 次にやること（優先順）
 
-1. **ANTHROPIC_API_KEY 更新**（現在401エラー）
-   - console.anthropic.com で新しいキーを発行
-   - VPS tokens.md + ローカル ~/.zshrc を更新
-   - 更新後: `python3 queue-processor.py` で動作確認
+1. **パイプライン通し確認**
+   - `#dmm-素材投稿` に漫画コマ画像+タイトル+アフィURLを実際に投稿
+   - queued → draft（30分以内）→ tagishiがNotionで承認 → canva_pending まで確認
 
-2. **VPS Canva組立スクリプト実装（STEP 6）**
-   - `dmm-canva-assembler.py`: canva_pending→Canva REST API→canva_ready
+2. **dmm-canva-assembler.py 実装（STEP 6）**
+   - Notionから `canva_pending` のレコードを取得
+   - Canva REST API でテンプレコピー → 配置 → 編集URL取得
+   - status を `canva_ready` に更新
 
-3. **VPS YouTube+X投稿スクリプト実装（STEP 8）**
-   - `dmm-publisher.py`（骨格実装済み、OAuth設定が必要）
+3. **YouTube OAuth2 認証（STEP 8の前提）**
+   - `python3 vps-youtube-upload.py --auth` を VPS で実行
+   - 初回のみ手動認証が必要
 
 4. **ConoHa APIパスワード再設定**（tagishi手動）→ 残高監視有効化
 
 ---
 
-## 運用ルール
-
-### 確認フォーマット（これ以外で確認しない）
-```
-【案件名】質問
-1: OK
-2: 待って
-```
-
-### Discord一本化原則
-- tagishiはDiscordに投げるだけ。GitHubキュー・ファイルInboxは廃止済み
-- API不要タスク → VPS Bot即実行 → `#通知`に結果
-- API必要タスク → Notionキュー → 次回セッション開始時に処理
-
-### コスト設計
-- モデルはSonnet固定（Opus禁止）
-- 漫画アフィリエイト: API使用は台本生成1回/本 + 分析週1回のみ
-- 離席前に `/clear`
-
----
-
-## 重要パス・接続情報
+## 認証情報・重要パス
 
 | 項目 | 値 |
 |---|---|
@@ -145,6 +138,7 @@ tagishi: #dmm-素材投稿 に画像+タイトル+アフィURL投稿
 | Notion Outbox DB | `36f1cad4-aa98-81fb-93d8-d40bfb95cff9` |
 | Notion コンテンツ審査DB | `3731cad4aa98810e82f8c0f99a483cbb` |
 | Vault ローカル | `~/Desktop/ClaudeProjects/AI-Brain/` |
+| Macクッキー | `~/.config/ai-brain/youtube-cookies.txt` |
 
 ---
 

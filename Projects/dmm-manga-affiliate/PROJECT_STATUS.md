@@ -11,11 +11,11 @@ updated_at: 2026-06-02
 - Discord投稿を起点にした9ステップパイプラインを完成させ、漫画アフィリエイト動画を1日最大10本自動生成・投稿する
 
 ## next_action
-- `dmm-discord-watcher.py` を実装してVPS常駐サービスとして起動する（STEP 2: Discord→Notionキュー登録）
+- `#dmm-素材投稿` に漫画コマ画像+タイトル+アフィURLを投稿してSTEP 2→3の通し確認をする（ANTHROPIC_API_KEY更新済みで実行可能）
 
 ## blocker
-- ANTHROPIC_API_KEY が401エラー（console.anthropic.comで新しいキーを発行する必要がある）
-- Discordの専用チャンネルIDとBot Tokenが未設定（tokens.mdへの追記が必要）
+- Canva組立（STEP 6）: dmm-canva-assembler.py 未実装（canva_pendingから先が止まる）
+- YouTube投稿（STEP 8）: OAuth2認証未実施
 
 ## latest_output
 
