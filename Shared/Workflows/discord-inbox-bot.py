@@ -115,7 +115,7 @@ def analyze_youtube(url: str) -> str:
     try:
         # 1. メタデータ取得（コメント含む）
         meta_raw = run(
-            ["yt-dlp", "--dump-json", "--no-playlist", "--no-warnings",
+            ["yt-dlp", "--dump-json", "--skip-download", "--no-playlist", "--no-warnings",
              "--write-comments", "--extractor-args", "youtube:max_comments=30,20,5",
              *cookies_args(), url],
             timeout=90,
@@ -182,7 +182,7 @@ def analyze_youtube(url: str) -> str:
 def analyze_instagram(url: str) -> str:
     # yt-dlpでまず試みる
     meta_raw = run(
-        ["yt-dlp", "--dump-json", "--no-playlist", "--no-warnings",
+        ["yt-dlp", "--dump-json", "--skip-download", "--no-playlist", "--no-warnings",
          *cookies_args(), url],
         timeout=60,
     )
