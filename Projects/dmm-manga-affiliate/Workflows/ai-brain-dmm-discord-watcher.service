@@ -1,0 +1,20 @@
+[Unit]
+Description=DMM Manga Affiliate Discord Watcher
+Documentation=https://github.com/coretagishi-lab/claude-brain
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/ai-brain
+EnvironmentFile=/opt/ai-brain/.credentials/.env
+ExecStart=/usr/bin/python3 /opt/ai-brain/Projects/dmm-manga-affiliate/Workflows/dmm-discord-watcher.py
+Restart=on-failure
+RestartSec=30
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=dmm-discord-watcher
+
+[Install]
+WantedBy=multi-user.target
