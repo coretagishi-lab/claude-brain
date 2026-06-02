@@ -35,7 +35,7 @@ KEY_MAP: dict[str, dict[str, str]] = {
         "REGION":    "CONOHA_REGION",
     },
     "ANTHROPIC": {"API_KEY": "ANTHROPIC_API_KEY"},
-    "NOTION":    {"TOKEN": "NOTION_TOKEN"},
+    "NOTION":    {"TOKEN": "NOTION_TOKEN", "CONTENT_DB_ID": "NOTION_CONTENT_DB_ID"},
     "YOUTUBE":   {"API_KEY": "YOUTUBE_API_KEY", "CHANNEL_ID": "YOUTUBE_CHANNEL_ID"},
 }
 
