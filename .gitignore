@@ -1,0 +1,11 @@
+# 認証情報 — 絶対にGitに含めない
+.credentials/
+*.env
+.env
+
+# キャッシュ・一時ファイル
+__pycache__/
+*.pyc
+.DS_Store
+*.log
+*.err
