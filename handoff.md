@@ -65,19 +65,50 @@ tagishi（Mac）
 
 ---
 
+## フロー確定（2026-06-02）
+
+**9ステップ確定フロー（詳細は master-context.md セクション9参照）:**
+
+```
+tagishi Discord投稿（画像+タイトル+アフィURL）
+  → VPS Discord Bot → Notionキュー（queued）
+  → Mac定時処理 → Claude API台本生成 → Notion（draft）
+  → tagishi Notion承認（approved）
+  → Mac定時処理 → Canva配置指示生成 → VPSトリガー
+  → VPS Canva組立 → Notion（canva_ready）
+  → tagishi 確認（final）
+  → VPS YouTube + X投稿（uploaded）
+  → VPS Analytics → Notion記録
+```
+
+**Notion追加フィールド:** `source_discord_url`・`api_cost_estimate`
+
+---
+
 ## 次にやること（優先順）
 
-1. **dmm-manga-affiliate 本番1本目を実行する**
-   - ANTHROPIC_API_KEY を `~/.zshrc` に追加（generate-content.py 単体実行のため）
-   - 漫画タイトル・DMMアフィリエイトURLを決定 → `python3 generate-content.py --manga-title "..." --affiliate-url "..."`
-   - 漫画パネル画像を VPS に配置: `/opt/ai-brain-media/panels/<slug>/`
-   - YouTube OAuth2 初回認証: `python3 vps-youtube-upload.py --auth`
+1. **VPS Discord Botを実装する（STEP 2）**
+   - `Projects/dmm-manga-affiliate/Workflows/dmm-discord-watcher.py` を作成
+   - Discord専用チャンネルの画像+テキスト+投稿URLを取得→Notionキュー登録
+   - systemdサービスとして常駐: `ai-brain-dmm-discord-watcher.service`
 
-2. **YouTube APIセットアップ**
-   - YOUTUBE_CHANNEL_ID と YOUTUBE_API_KEY を tokens.md に追記
-   - `python3 /opt/ai-brain/Shared/Workflows/cred-loader.py --update-profile`
+2. **Mac定時処理スクリプトを実装する（STEP 3・5）**
+   - `queue-processor.py`: queued → Claude API台本生成 → draft
+   - `canva-instructions.py`: approved → Canva配置指示生成 → VPSトリガー
+   - launchd plistで30分おき自動実行
 
-3. **ConoHa APIパスワード再設定**（tagishi手動）→ 残高監視有効化
+3. **Notion DBにフィールド追加**
+   - `source_discord_url`（url型）
+   - `api_cost_estimate`（rich_text型）
+
+4. **VPS Canva組立・投稿スクリプト実装（STEP 6・8）**
+   - `dmm-canva-assembler.py`・`dmm-publisher.py`
+
+5. **ANTHROPIC_API_KEY 更新**（現在のキーが401エラー）
+   - console.anthropic.com で新しいキーを発行
+   - VPS tokens.md + ローカル ~/.zshrc を更新
+
+6. **ConoHa APIパスワード再設定**（tagishi手動）→ 残高監視有効化
 
 ---
 

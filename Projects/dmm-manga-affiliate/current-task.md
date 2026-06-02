@@ -1,43 +1,64 @@
 ---
 project: dmm-manga-affiliate
 updated_at: 2026-06-02
-checkpoint: STEP 1スクリプト完成・Notion DB作成済み。ANTHROPIC_API_KEY設定後に本番実行可能。
+checkpoint: 9ステップ確定フローに更新。Discord Bot実装が次のステップ。
 ---
 
-## 現在のフェーズ: パイプライン実装（STEP 1完了・STEP 3準備中）
+## 現在のフェーズ: パイプライン実装（確定フロー v2）
 
 ### チェックリスト
 
+**基盤（完了）**
 - [x] VOICEVOX 0.25.2 インストール・API接続確認
-- [x] generate_video_v2.py VOICEVOX対応書き換え
-- [x] テロップ・音声同期修正（duration実測値制御）
-- [x] OpenCV コマ自動検出スクリプト作成
-- [x] Canva MCP を Claude Code に接続（ワンクリック完了）
+- [x] Canva MCP を Claude Code に接続
 - [x] Notion「コンテンツ審査」DB作成（ID: 3731cad4aa98810e82f8c0f99a483cbb）
-- [x] generate-content.py 実装（STEP 1: 台本生成 → Notion投稿）
-- [x] vps-assemble-video.py 実装（STEP 3: VOICEVOX+ffmpeg動画生成）
-- [x] vps-youtube-upload.py 実装（STEP 5: YouTube投稿）
 - [x] experience.md 初期ファイル作成
-- [ ] ANTHROPIC_API_KEY を ~/.zshrc に追加（generate-content.py単体実行のため）
-- [ ] 漫画パネル画像を /opt/ai-brain-media/panels/<slug>/ に配置（STEP 3実行のため）
-- [ ] YouTube OAuth2 初回認証（vps-youtube-upload.py --auth）
-- [ ] 本番1本目を実際に生成・投稿する
 
-## 技術スタック（確定）
+**STEP 2: Discord Bot（VPS）**
+- [ ] `dmm-discord-watcher.py` 実装（画像+テキスト+投稿URL → Notionキュー登録）
+- [ ] systemdサービス登録: `ai-brain-dmm-discord-watcher.service`
+- [ ] Notion DBに `source_discord_url`・`api_cost_estimate` フィールド追加
+- [ ] statusに `queued` を追加
+
+**STEP 3・5: Mac定時処理（launchd）**
+- [ ] `queue-processor.py` 実装（queued → Claude API → draft + コスト記録）
+- [ ] `canva-instructions.py` 実装（approved → Canva配置指示詳細生成 → VPSトリガー）
+- [ ] launchd plist 作成（30分おき実行）
+
+**STEP 6: VPS Canva組立**
+- [ ] `dmm-canva-assembler.py` 実装（Notionから指示取得 → Canva配置 → 編集URL記録）
+- [ ] Canvaテンプレート1本を手動で準備
+
+**STEP 8: VPS 投稿**
+- [ ] `dmm-publisher.py` 実装（Canva動画DL → YouTube + X投稿）
+- [ ] YouTube OAuth2 初回認証（`--auth` オプション）
+- [ ] X（Twitter）API token を tokens.md に追記
+
+**STEP 9: Analytics**
+- [ ] `dmm-analytics.py` 実装（YouTube Analytics → Notion）
+
+**認証**
+- [ ] ANTHROPIC_API_KEY 更新（現在401エラー）→ console.anthropic.com で再発行
+
+## 技術スタック（確定 v2）
 
 | 役割 | ツール |
 |---|---|
-| 画像ソース | GDrive MCP |
-| コマ検出 | OpenCV (detect_panels.py) |
-| 動画生成 | generate_video_v2.py + ffmpeg |
-| TTS | VOICEVOX localhost:50021 |
-| テンプレート | Canva MCP（接続済み） |
-| 承認フロー | Notion MCP（次回接続） |
-| 動画保存 | GDrive → YouTube |
+| 画像ソース | Discord（一本化・GDrive廃止） |
+| Discord監視 | `dmm-discord-watcher.py`（VPS常駐） |
+| 台本生成 | Claude API（Mac定時処理・1回/本） |
+| Canva配置指示 | Claude API（Mac定時処理・1回/本） |
+| 動画組立 | Canva（VPS Canva REST API） |
+| TTS | VOICEVOX（Canva組込み or VPS生成） |
+| YouTube投稿 | YouTube Data API v3（VPS） |
+| X投稿 | X API v2（VPS） |
+| 承認フロー | Notion（全ステップのハブ） |
+| 定時処理 | launchd（Mac）+ systemd（VPS） |
 
-## ファイル場所
+## Notionステータス遷移
 
-- スクリプト: `/tmp/dmm-manga-video/generate_video_v2.py`
-- コマ検出: `/tmp/dmm-manga-video/detect_panels.py`
-- 画像inbox: `/tmp/dmm-manga-images/`
-- 動画出力: `/tmp/dmm-manga-video/`
+```
+queued → draft → approved → canva_ready → final → uploaded
+  ↑         ↑        ↑            ↑           ↑        ↑
+VPS Bot   Mac定時  tagishi     VPS Canva   tagishi  VPS投稿
+```

@@ -8,15 +8,14 @@ updated_at: 2026-06-02
 ---
 
 ## current_goal
-- DMMアフィリエイト漫画動画を「台本生成→Notion承認→動画組立→YouTube投稿」の8ステップパイプラインで自動化する
+- Discord投稿を起点にした9ステップパイプラインを完成させ、漫画アフィリエイト動画を1日最大10本自動生成・投稿する
 
 ## next_action
-- ANTHROPIC_API_KEY を ~/.zshrc に追加して generate-content.py を単体実行できる状態にする
-- 本番1本目の漫画タイトル・アフィリエイトURLを決定してSTEP 1を実行する
+- `dmm-discord-watcher.py` を実装してVPS常駐サービスとして起動する（STEP 2: Discord→Notionキュー登録）
 
 ## blocker
-- ANTHROPIC_API_KEY が Bash 環境変数に未設定（generate-content.py 単体実行には必要）
-- 漫画パネル画像が VPS にない（STEP 3 実行前に配置が必要: /opt/ai-brain-media/panels/<slug>/）
+- ANTHROPIC_API_KEY が401エラー（console.anthropic.comで新しいキーを発行する必要がある）
+- Discordの専用チャンネルIDとBot Tokenが未設定（tokens.mdへの追記が必要）
 
 ## latest_output
 
