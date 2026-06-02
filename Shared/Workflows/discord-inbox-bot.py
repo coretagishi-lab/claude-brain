@@ -401,13 +401,42 @@ intents.message_content = True
 client = discord.Client(intents=intents)
 
 
-async def send_to_notify(text: str):
+class CopyView(discord.ui.View):
+    """URL分析結果に付与する「📋 全文コピー」ボタン"""
+
+    def __init__(self, full_text: str):
+        super().__init__(timeout=600)  # 10分でタイムアウト
+        self.full_text = full_text
+
+    @discord.ui.button(label="📋 全文コピー", style=discord.ButtonStyle.secondary)
+    async def copy_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Discord markdown を除去してプレーンテキスト化
+        plain = re.sub(r"\*\*(.*?)\*\*", r"\1", self.full_text)  # **bold** → bold
+        plain = re.sub(r"`([^`\n]*)`", r"\1", plain)             # `code` → code
+        plain = plain.strip()
+
+        # コードブロック1件あたり最大1950文字（``` × 2 + \n × 2 のオーバーヘッド考慮）
+        limit = 1950
+        chunks = [plain[i:i + limit] for i in range(0, len(plain), limit)]
+        total  = len(chunks)
+
+        # 最初のchunkで即座に応答（インタラクション3秒タイムアウト回避）
+        header = f"（1/{total}）\n" if total > 1 else ""
+        await interaction.response.send_message(f"```\n{header}{chunks[0]}\n```")
+
+        # 2件目以降はfollowupで続けて送信
+        for idx, chunk in enumerate(chunks[1:], start=2):
+            await interaction.followup.send(f"```\n（{idx}/{total}）\n{chunk}\n```")
+
+
+async def send_to_notify(text: str, view: discord.ui.View = None):
     ch = client.get_channel(DISCORD_NOTIFY_CHANNEL_ID)
     if not ch:
         return
-    # 2000文字ごとに分割送信
-    for i in range(0, min(len(text), 8000), 1990):
-        await ch.send(text[i:i + 1990])
+    chunks = [text[i:i + 1990] for i in range(0, min(len(text), 8000), 1990)]
+    for i, chunk in enumerate(chunks):
+        # ボタンは最後のメッセージにだけ付ける
+        await ch.send(chunk, view=view if i == len(chunks) - 1 else None)
 
 
 @client.event
@@ -437,8 +466,9 @@ async def on_message(message: discord.Message):
         await message.add_reaction("🔍")
         await message.reply("🔍 URL分析中... 結果は #通知 に送ります（最大2分）")
         result = await loop.run_in_executor(None, lambda: analyze_url(url))
-        header = f"📊 **URL分析結果** (依頼: {message.author.display_name})\n"
-        await send_to_notify(header + result)
+        header    = f"📊 **URL分析結果** (依頼: {message.author.display_name})\n"
+        full_text = header + result
+        await send_to_notify(full_text, view=CopyView(full_text))
         await message.add_reaction("✅")
         print(f"[url] {url[:80]}")
         return
