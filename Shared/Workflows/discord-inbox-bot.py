@@ -20,7 +20,7 @@ _here = _os.path.dirname(_os.path.abspath(__file__))
 if _here in sys.path:
     sys.path.remove(_here)
 
-import asyncio, os, json, re, shutil, subprocess, tempfile, urllib.request, urllib.error
+import asyncio, os, json, re, shutil, subprocess, tempfile, urllib.request, urllib.error, urllib.parse
 from datetime import datetime
 
 import discord
@@ -148,7 +148,7 @@ def analyze_youtube(url: str) -> str:
             return f"❌ YouTube情報取得失敗（クッキーあり・なし両方試行済み）"
 
         title       = data.get("title", "(不明)")
-        description = (data.get("description") or "")[:1200]
+        description = (data.get("description") or "")
         uploader    = data.get("uploader") or data.get("channel", "")
         views       = data.get("view_count") or 0
         likes       = data.get("like_count") or 0
@@ -157,8 +157,9 @@ def analyze_youtube(url: str) -> str:
         ud          = data.get("upload_date") or ""
         upload_date = f"{ud[:4]}-{ud[4:6]}-{ud[6:]}" if len(ud) == 8 else ud
         comments    = data.get("comments") or []
+        chapters    = data.get("chapters") or []
 
-        # 2. 字幕ダウンロード（クッキー + EJSソルバーで試行、失敗時はなし）
+        # 2. 字幕ダウンロード（日本語優先 → 英語フォールバック）
         sub_cmd = ["yt-dlp", "--write-subs", "--write-auto-subs",
                    "--sub-lang", "ja.*,en.*", "--sub-format", "vtt",
                    "--skip-download", "--no-playlist", "--no-warnings",
@@ -167,12 +168,17 @@ def analyze_youtube(url: str) -> str:
             run(sub_cmd + ["--cookies", YTDLP_COOKIES, "-o", f"{work}/sub", url], timeout=60)
         if not any(f.endswith(".vtt") for f in os.listdir(work)):
             run(sub_cmd + ["-o", f"{work}/sub", url], timeout=60)
+
+        # 日本語優先でVTTファイルを選択
+        vtt_files = [f for f in os.listdir(work) if f.endswith(".vtt")]
+        ja_files  = [f for f in vtt_files if ".ja." in f or f.endswith(".ja.vtt")]
+        en_files  = [f for f in vtt_files if ".en." in f or f.endswith(".en.vtt")]
+        chosen    = (ja_files or en_files or vtt_files)
+        sub_lang  = "ja" if ja_files else ("en" if en_files else "")
         subtitle_text = ""
-        for fname in sorted(os.listdir(work)):
-            if fname.endswith(".vtt"):
-                raw_vtt = open(os.path.join(work, fname), encoding="utf-8", errors="ignore").read()
-                subtitle_text = parse_vtt(raw_vtt)[:2000]
-                break
+        if chosen:
+            raw_vtt = open(os.path.join(work, chosen[0]), encoding="utf-8", errors="ignore").read()
+            subtitle_text = parse_vtt(raw_vtt)[:2000]
 
         # 3. 上位コメント（いいね順）
         top_comments = []
@@ -180,6 +186,20 @@ def analyze_youtube(url: str) -> str:
             for c in sorted(comments, key=lambda x: x.get("like_count", 0), reverse=True)[:5]:
                 text = (c.get("text") or "")[:120].replace("\n", " ")
                 top_comments.append(f"👍{c.get('like_count',0):,}  {text}")
+
+        # 4. 説明文中のURLからドメイン抽出
+        desc_urls = re.findall(r"https?://[^\s\)\"'<>]+", description)
+        domains   = sorted({urllib.parse.urlparse(u).netloc for u in desc_urls if urllib.parse.urlparse(u).netloc})
+
+        # 5. チャプター情報（秒 → MM:SS）
+        def sec_to_mmss(s):
+            s = int(s)
+            return f"{s // 60:02d}:{s % 60:02d}"
+
+        chapter_lines = [
+            f"`{sec_to_mmss(c['start_time'])}` {c['title']}"
+            for c in chapters
+        ]
 
         # ── フォーマット ──
         lines = [
@@ -191,11 +211,24 @@ def analyze_youtube(url: str) -> str:
         ]
         if tags:
             lines.append(f"🏷️ {', '.join(tags)}")
-        lines += ["", "**📝 説明文:**", description or "(なし)"]
+
+        lines += ["", "**📝 説明文:**", description[:1000] or "(なし)"]
+
+        if domains:
+            lines += ["", f"**🔗 説明文内リンク ({len(domains)}件):**"]
+            lines += [f"  • {d}" for d in domains[:15]]
+
+        if chapter_lines:
+            lines += ["", f"**📑 チャプター ({len(chapters)}件):**"]
+            lines += chapter_lines[:20]
+
         if subtitle_text:
-            lines += ["", f"**📄 字幕（冒頭）:**", subtitle_text[:1500]]
+            lang_label = f"（{sub_lang}）" if sub_lang else ""
+            lines += ["", f"**📄 字幕{lang_label}（冒頭）:**", subtitle_text[:1500]]
+
         if top_comments:
             lines += ["", "**💬 上位コメント:**"] + top_comments
+
         return "\n".join(lines)
 
     finally:
