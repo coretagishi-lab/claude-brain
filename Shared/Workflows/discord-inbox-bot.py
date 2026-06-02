@@ -16,6 +16,12 @@ API必要タスク（Notionキューに登録 → 次回ターミナル起動時
 依存:
   pip3 install discord.py --break-system-packages
 """
+import sys, os as _os
+# Shared/Workflows/ に queue.py があり標準ライブラリと衝突するため除去
+_here = _os.path.dirname(_os.path.abspath(__file__))
+if _here in sys.path:
+    sys.path.remove(_here)
+
 import asyncio, os, json, re, subprocess, urllib.request, urllib.error
 from datetime import datetime
 
