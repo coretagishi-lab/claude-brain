@@ -44,6 +44,7 @@ HELP_TEXT = """\
 
 **即実行（API不要）:**
 YouTube/Instagram URL を貼る → 全情報収集して #通知 に返送
+`競合分析: <ジャンル>` — YouTube Shorts収集→夜中2時に一括分析
 `status` — サービス状態確認
 `sync` — Vault同期を即時実行
 `restart <サービス>` — 再起動
@@ -332,6 +333,31 @@ def do_log(svc_raw: str) -> str:
     return f"**`{svc}` ログ（最新20行）**\n```\n{trim(out)}\n```" if out else f"`{svc}` のログが見つかりません"
 
 
+def do_competitive_search(genre: str) -> str:
+    """競合分析: ジャンルでYouTube Shortsを検索してNotionキューに登録"""
+    script = "/opt/ai-brain/Shared/Workflows/competitive-search.py"
+    if not os.path.exists(script):
+        return f"❌ competitive-search.py が見つかりません"
+
+    out = run(
+        ["python3", script, genre, "--max", "20"],
+        timeout=180,
+    )
+    # competitive-search.py の出力から件数とURLを取得
+    count_m = re.search(r"COUNT:(\d+)", out)
+    url_m   = re.search(r"PAGE_URL:(https?://\S+)", out)
+    count   = count_m.group(1) if count_m else "?"
+    page    = url_m.group(1)   if url_m   else ""
+
+    if count_m:
+        return (
+            f"🔍 **{genre}** の競合動画を **{count}本** 収集しました\n"
+            f"⏰ 夜中2:00に一括分析してNotionにレポートを保存します\n"
+            + (f"→ {page}" if page else "")
+        )
+    return f"⚠️ 検索結果:\n```\n{trim(out)}\n```"
+
+
 # ── Notion ────────────────────────────────────────────────────────────────────
 
 def notion_post(path: str, data: dict):
@@ -475,6 +501,17 @@ async def on_message(message: discord.Message):
 
     # ── テキストコマンドルーティング ────────────────────────────────────────
     text = content
+
+    # 競合分析: {ジャンル名}
+    m = re.match(r"^(競合分析|競合調査|分析)[:：]\s*(.+)", text, re.I | re.DOTALL)
+    if m:
+        genre = m.group(2).strip()
+        await message.add_reaction("🔍")
+        await message.reply(f"🔍 **{genre}** の競合動画を検索中... （最大3分）")
+        result = await loop.run_in_executor(None, lambda: do_competitive_search(genre))
+        await message.add_reaction("✅")
+        await message.reply(result)
+        return
 
     if re.match(r"^(help|ヘルプ|使い方)$", text, re.I):
         await message.reply(HELP_TEXT)

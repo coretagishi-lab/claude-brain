@@ -515,6 +515,82 @@ ACCOUNT_2_TOKEN: ...
 
 ---
 
+## 10. 競合分析自動化（dmm-manga-affiliate）— 確定 2026-06-03
+
+### 概要
+
+日本語・漫画系YouTube Shortsの競合動画を自動収集・分析してCanvaテンプレ改善に活かす。
+
+### フロー
+
+```
+tagishi: #inbox に「競合分析: {ジャンル名}」を投稿
+                    │
+                    ▼
+    [VPS Bot] competitive-search.py を実行
+              yt-dlp で YouTube Shorts 最大20本収集
+              Notionキューに登録（status: queued）
+              #inbox にリプライ:「N本収集。夜中2時に分析します」
+                    │ ← Macがオフの間も Notionに待機
+                    ▼
+    [Mac 毎日2:00] competitive-analyzer.py
+              Notion queued を取得
+              yt-dlp で各動画の詳細情報取得（コメント・チャプター・サムネイル）
+              Claude API 1回で一括分析（サムネイル画像 + 全データ）
+              Notion にレポート保存（status: done）
+                    │
+                    ▼
+    [VPS] Discord #通知 に完了通知
+          「競合分析完了: {ジャンル名} / N本 / $X.XX」
+```
+
+### 分析内容（Claude API への指示）
+
+| 項目 | 内容 |
+|---|---|
+| タイトル傾向 | 高再生数タイトルの言い回し・感情訴求キーワード |
+| 冒頭30秒構成 | チャプター情報から読み取れるオープニングの型 |
+| コメント反応 | いいね数上位コメントから見る視聴者が刺さる要素 |
+| サムネイルパターン | Claude vision でテキスト配置・色・強調を分析 |
+| 課金誘発共通点 | 「続きが気になる」「課金した」コメント多い動画の特徴 |
+| TOP5共通点 | 再生数上位5本の絶対条件 |
+| Canvaアドバイス | テロップ・サムネイル・冒頭演出の具体的改善策5点以上 |
+
+### Notion 競合分析 DB
+
+DB ID: `3731cad4aa98811383c6f5b4973aee2c`
+
+| フィールド | 型 | 内容 |
+|---|---|---|
+| title | Title | `[YYYY-MM-DD] 競合分析: ジャンル名` |
+| genre | rich_text | ジャンル名 |
+| status | select | queued → analyzing → done / error |
+| video_count | number | 分析動画数 |
+| canva_advice | rich_text | Canva改善アドバイス（要約） |
+| created_at | date | 登録日 |
+
+### 実装済みスクリプト
+
+| スクリプト | 場所 | 役割 | 状態 |
+|---|---|---|---|
+| `competitive-search.py` | Shared/Workflows/ (VPS) | ジャンル検索→Notion登録 | ✅ 稼働中 |
+| `competitive-analyzer.py` | dmm-manga-affiliate/Workflows/ (Mac) | Claude一括分析→レポート | ✅ launchd登録済み |
+| `com.ai-brain.competitive-analysis` | launchd | 毎日2:00に自動実行 | ✅ 登録済み |
+
+### discord-inbox-bot 競合分析コマンド
+
+```
+競合分析: ドキドキ漫画
+競合分析: 異世界転生ショート
+分析: 大人向け漫画
+```
+
+→ VPS が即座に検索・収集して Notion キューに登録
+→ 夜中2:00 に Mac が自動分析・レポート作成
+→ 朝 Discord #通知 に完了通知
+
+---
+
 ## 7. セッション開始チェックリスト
 
 ```
