@@ -53,6 +53,13 @@ YouTube/Instagram URL を貼る → 全情報収集して #通知 に返送
 **次回ターミナル起動時に処理（Claude API必要）:**
 上記以外のメッセージ → Notionキューに登録"""
 
+# ── yt-dlp クッキー設定 ────────────────────────────────────────────────────────
+YTDLP_COOKIES = "/opt/ai-brain/.credentials/youtube-cookies.txt"
+
+def cookies_args() -> list:
+    """クッキーファイルが存在する場合のみ --cookies 引数を返す"""
+    return ["--cookies", YTDLP_COOKIES] if os.path.exists(YTDLP_COOKIES) else []
+
 # ── URL パターン ──────────────────────────────────────────────────────────────
 YT_RE = re.compile(
     r"https?://(?:www\.)?(?:youtube\.com/(?:watch\?(?:.*&)?v=|shorts/)|youtu\.be/)[\w\-]+"
@@ -110,7 +117,7 @@ def analyze_youtube(url: str) -> str:
         meta_raw = run(
             ["yt-dlp", "--dump-json", "--no-playlist", "--no-warnings",
              "--write-comments", "--extractor-args", "youtube:max_comments=30,20,5",
-             url],
+             *cookies_args(), url],
             timeout=90,
         )
         try:
@@ -134,7 +141,7 @@ def analyze_youtube(url: str) -> str:
             ["yt-dlp", "--write-subs", "--write-auto-subs",
              "--sub-lang", "ja.*,en.*", "--sub-format", "vtt",
              "--skip-download", "--no-playlist", "--no-warnings",
-             "-o", f"{work}/sub", url],
+             *cookies_args(), "-o", f"{work}/sub", url],
             timeout=40,
         )
         subtitle_text = ""
@@ -175,7 +182,8 @@ def analyze_youtube(url: str) -> str:
 def analyze_instagram(url: str) -> str:
     # yt-dlpでまず試みる
     meta_raw = run(
-        ["yt-dlp", "--dump-json", "--no-playlist", "--no-warnings", url],
+        ["yt-dlp", "--dump-json", "--no-playlist", "--no-warnings",
+         *cookies_args(), url],
         timeout=60,
     )
     try:
