@@ -108,22 +108,43 @@ VPS Bot  Mac定時  tagishi     Mac定時          VPS       tagishi  VPS投稿
 
 ---
 
+## スケールアップ設計（確定 2026-06-03）
+
+| 項目 | 設計 |
+|---|---|
+| バリエーション | 1素材から **4本** 一括生成（デフォルト） |
+| アカウント | **YouTube 4アカウント**で検証スタート |
+| 投稿時間 | アカウントごとにずらす（9:00 / 12:00 / 18:00 / 21:00） |
+| Canvaテンプレ | アカウントごとに専用テンプレートを使用 |
+| IP対策 | 収益が出てから（今は保留） |
+
+詳細設計: `master-context.md` セクション9「スケールアップ設計」参照
+
+---
+
 ## 次にやること（優先順）
 
-1. **パイプライン通し確認**
-   - `#dmm-素材投稿` に漫画コマ画像+タイトル+アフィURLを実際に投稿
-   - queued → draft（30分以内）→ tagishiがNotionで承認 → canva_pending まで確認
+1. **4バリエーション対応に queue-processor.py を改修**
+   - 1素材 → Claude API 1回 → 4バリエーション（タイトル・説明文・台本）一括生成
+   - Notion に4件レコード作成（account_id: 1〜4, source_group_id: 同一UUID）
 
-2. **dmm-canva-assembler.py 実装（STEP 6）**
-   - Notionから `canva_pending` のレコードを取得
-   - Canva REST API でテンプレコピー → 配置 → 編集URL取得
-   - status を `canva_ready` に更新
+2. **Notion DBにアカウント管理フィールドを追加**
+   - `account_id`（select: 1/2/3/4）
+   - `variant_num`（number）
+   - `source_group_id`（rich_text）
+   - `scheduled_time`（date）
+   - `canva_template_id`（rich_text）
 
-3. **YouTube OAuth2 認証（STEP 8の前提）**
-   - `python3 vps-youtube-upload.py --auth` を VPS で実行
-   - 初回のみ手動認証が必要
+3. **dmm-canva-assembler.py 実装（STEP 6）**
+   - canva_pending → account_idからテンプレートIDを決定 → Canva組立 → canva_ready
 
-4. **ConoHa APIパスワード再設定**（tagishi手動）→ 残高監視有効化
+4. **パイプライン通し確認**
+   - `#dmm-素材投稿` に画像を投稿 → queued → draft → approved → canva_pending まで確認
+
+5. **YouTube OAuth2 認証（4アカウント分）**
+   - `python3 vps-youtube-upload.py --auth` を各アカウントで実行
+
+6. **ConoHa APIパスワード再設定**（tagishi手動）→ 残高監視有効化
 
 ---
 
