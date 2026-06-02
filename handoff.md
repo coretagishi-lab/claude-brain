@@ -34,52 +34,50 @@ tagishi（Mac）
 
 | サービス | 内容 |
 |---|---|
-| `ai-brain-sync.timer` | 30分ごとVault→GitHub同期 |
+| `ai-brain-sync.timer` | 30分ごとVault→GitHub同期 ✅ 正常確認済み |
 | `ai-brain-memory-monitor.timer` | メモリ監視・800MB超でDiscord通知 |
 | `ai-brain-auth-monitor.timer` | 5分ごと認証エラー検出・自己修復 |
 | `ai-brain-morning-report.timer` | 毎朝8時 Discord日次レポート |
 | `ai-brain-discord-responder.service` | 常駐Bot（1/2返信受付のみ・APIゼロ） |
 
-### 実装済みスクリプト
+### インフラ整備（2026-06-02 完了）
+
+| 項目 | 状態 |
+|---|---|
+| VPS 日本語ロケール（ja_JP.UTF-8） | ✅ 設定済み |
+| GitHub token（inbox-mobile・有効期限なし） | ✅ 更新済み |
+| VPS sync 正常確認 | ✅ |
+| スマホ Inbox アプリ接続 | ✅ iPhone → GitHub 投稿フロー確認済み |
+| ConoHa エラーログクリア | ✅ |
+
+### dmm-manga-affiliate パイプライン実装（2026-06-02 完了）
 
 | ファイル | 役割 |
 |---|---|
-| `cred-loader.py` | `/opt/ai-brain/.credentials/tokens.md` → `.env` + `.profile` 自動生成 |
-| `auth-monitor.py` | 認証エラー検出 → tokens.md参照 → 自己修復 → 失敗時Notion登録 |
-| `morning-report.py` | VPS状態・Notion承認待ち・YouTube再生数・API料金 → Discord通知 |
-| `discord-responder.py` | 「1」「2」の返信のみ受付。1=即実行orNotion登録、2=保留 |
-| `discord-ask.py` | VPSから質問送信 + pendingファイル登録 |
-| `vps-task-reporter.py` | VPS自己解決不能 → Notion待機タスク登録 + Discord通知 |
-| `vps-task-checker.py` | セッション開始時にNotionの待機タスクを確認・処理 |
+| `Projects/dmm-manga-affiliate/Workflows/generate-content.py` | STEP 1: Claude API 1回 → 台本・タイトル・説明文生成 → Notion投稿 |
+| `Projects/dmm-manga-affiliate/Workflows/setup-notion-db.py` | Notionコンテンツ審査DB作成（初回のみ） |
+| `Projects/dmm-manga-affiliate/Workflows/vps-assemble-video.py` | STEP 3: Notion approved → VOICEVOX + ffmpeg 動画生成 |
+| `Projects/dmm-manga-affiliate/Workflows/vps-youtube-upload.py` | STEP 5: YouTube Data API 自動投稿 |
+| `Projects/dmm-manga-affiliate/Knowledge/experience.md` | 台本品質改善ログ |
 
-### ドキュメント
-
-- `master-context.md` v1.2 — システム全体設計・漫画アフィリエイトフロー・スクリプト一覧
-- `CLAUDE.md` v4.4 — 自律判断ルール・確認ゼロ化・ConoHa後回し・認証自己修復
-- `TODO.md` — 完了/次タスク管理
-- `tokens.md`（VPS `/opt/ai-brain/.credentials/`） — 全認証情報一元管理（gitignore済み）
+**Notion コンテンツ審査 DB:**  
+`NOTION_CONTENT_DB_ID=3731cad4aa98810e82f8c0f99a483cbb`（ローカル・VPS設定済み）
 
 ---
 
 ## 次にやること（優先順）
 
-1. **DMM manga affiliate パイプライン実装**
-   - STEP 1: ターミナルが台本・タイトル・説明文を1回のAPIで生成 → Notionに投稿
-   - STEP 3: VPSがCanva MCPでテンプレコピー → 画像・テロップ・VOICEVOX配置 → 動画書き出し
-   - STEP 5: VPSがYouTubeに自動投稿
-   - 詳細フローは `master-context.md` セクション9参照
+1. **dmm-manga-affiliate 本番1本目を実行する**
+   - ANTHROPIC_API_KEY を `~/.zshrc` に追加（generate-content.py 単体実行のため）
+   - 漫画タイトル・DMMアフィリエイトURLを決定 → `python3 generate-content.py --manga-title "..." --affiliate-url "..."`
+   - 漫画パネル画像を VPS に配置: `/opt/ai-brain-media/panels/<slug>/`
+   - YouTube OAuth2 初回認証: `python3 vps-youtube-upload.py --auth`
 
-2. **ConoHa APIパスワード再設定**（tagishi手動）→ 残高監視有効化
-
-3. **VPS日本語ロケール設定**
-   ```bash
-   ssh -i ~/.ssh/conoha_vps root@133.88.117.175
-   locale-gen ja_JP.UTF-8
-   ```
-
-4. **YouTube APIセットアップ**
+2. **YouTube APIセットアップ**
    - YOUTUBE_CHANNEL_ID と YOUTUBE_API_KEY を tokens.md に追記
    - `python3 /opt/ai-brain/Shared/Workflows/cred-loader.py --update-profile`
+
+3. **ConoHa APIパスワード再設定**（tagishi手動）→ 残高監視有効化
 
 ---
 

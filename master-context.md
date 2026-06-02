@@ -2,7 +2,7 @@
 type: master-context
 title: システム全体設計・運用ルール
 updated: 2026-06-02
-version: 1.2
+version: 1.3
 ---
 
 # Master Context — AI-Brain 運用マニュアル
@@ -159,7 +159,7 @@ version: 1.2
 
 | サービス | 種別 | 間隔/常駐 | 状態 |
 |---|---|---|---|
-| `ai-brain-sync.timer` | timer | 30分 | ✅ 稼働中 |
+| `ai-brain-sync.timer` | timer | 30分 | ✅ 稼働中・正常確認済み（2026-06-02） |
 | `ai-brain-memory-monitor.timer` | timer | 60秒 | ✅ 稼働中（800MB超でDiscord通知） |
 | `ai-brain-auth-monitor.timer` | timer | 5分 | ✅ 稼働中（修復失敗→Notion待機タスク） |
 | `ai-brain-morning-report.timer` | timer | 毎朝8時 | ✅ 稼働中（Discord日次レポート） |
@@ -181,7 +181,7 @@ version: 1.2
 ### VPS未完了タスク（対応待ち）
 
 - [ ] ConoHa APIパスワード再設定 → 残高監視有効化（tagishi 手動作業）
-- [ ] VPS 日本語ロケール設定（`locale-gen ja_JP.UTF-8`）
+- [x] VPS 日本語ロケール設定（`locale-gen ja_JP.UTF-8`）— 2026-06-02 完了
 
 ### ツールスタック
 
