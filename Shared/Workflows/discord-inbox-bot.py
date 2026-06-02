@@ -110,20 +110,39 @@ def parse_vtt(content: str) -> str:
     return " ".join(lines)
 
 
+def _ytdlp_fetch_json(cmd_args: list, url: str, timeout: int = 90) -> tuple:
+    """
+    yt-dlp --dump-json を実行。クッキーありで失敗した場合はなしでリトライ。
+    Returns: (data_dict, used_cookies: bool)
+    """
+    base = ["yt-dlp", "--dump-json", "--skip-download", "--no-playlist", "--no-warnings"]
+
+    # クッキーありで試行
+    if os.path.exists(YTDLP_COOKIES):
+        raw = run(base + cmd_args + ["--cookies", YTDLP_COOKIES, url], timeout=timeout)
+        try:
+            return json.loads(raw), True
+        except json.JSONDecodeError:
+            pass  # フォールバックへ
+
+    # クッキーなしで再試行
+    raw = run(base + cmd_args + [url], timeout=timeout)
+    try:
+        return json.loads(raw), False
+    except json.JSONDecodeError:
+        return None, False
+
+
 def analyze_youtube(url: str) -> str:
     work = tempfile.mkdtemp(prefix="yt-")
     try:
-        # 1. メタデータ取得（コメント含む）
-        meta_raw = run(
-            ["yt-dlp", "--dump-json", "--skip-download", "--no-playlist", "--no-warnings",
-             "--write-comments", "--extractor-args", "youtube:max_comments=30,20,5",
-             *cookies_args(), url],
-            timeout=90,
+        # 1. メタデータ取得（クッキーあり→失敗時はなしでリトライ）
+        data, used_cookies = _ytdlp_fetch_json(
+            ["--write-comments", "--extractor-args", "youtube:max_comments=30,20,5"],
+            url, timeout=90,
         )
-        try:
-            data = json.loads(meta_raw)
-        except json.JSONDecodeError:
-            return f"❌ YouTube情報取得失敗\n```{meta_raw[:400]}```"
+        if data is None:
+            return f"❌ YouTube情報取得失敗（クッキーあり・なし両方試行済み）"
 
         title       = data.get("title", "(不明)")
         description = (data.get("description") or "")[:1200]
@@ -136,14 +155,14 @@ def analyze_youtube(url: str) -> str:
         upload_date = f"{ud[:4]}-{ud[4:6]}-{ud[6:]}" if len(ud) == 8 else ud
         comments    = data.get("comments") or []
 
-        # 2. 字幕ダウンロード（日本語優先→英語）
-        run(
-            ["yt-dlp", "--write-subs", "--write-auto-subs",
-             "--sub-lang", "ja.*,en.*", "--sub-format", "vtt",
-             "--skip-download", "--no-playlist", "--no-warnings",
-             *cookies_args(), "-o", f"{work}/sub", url],
-            timeout=40,
-        )
+        # 2. 字幕ダウンロード（クッキーありで試行、失敗時はなし）
+        sub_cmd = ["yt-dlp", "--write-subs", "--write-auto-subs",
+                   "--sub-lang", "ja.*,en.*", "--sub-format", "vtt",
+                   "--skip-download", "--no-playlist", "--no-warnings"]
+        if os.path.exists(YTDLP_COOKIES):
+            run(sub_cmd + ["--cookies", YTDLP_COOKIES, "-o", f"{work}/sub", url], timeout=40)
+        if not any(f.endswith(".vtt") for f in os.listdir(work)):
+            run(sub_cmd + ["-o", f"{work}/sub", url], timeout=40)
         subtitle_text = ""
         for fname in sorted(os.listdir(work)):
             if fname.endswith(".vtt"):
@@ -180,14 +199,11 @@ def analyze_youtube(url: str) -> str:
 
 
 def analyze_instagram(url: str) -> str:
-    # yt-dlpでまず試みる
-    meta_raw = run(
-        ["yt-dlp", "--dump-json", "--skip-download", "--no-playlist", "--no-warnings",
-         *cookies_args(), url],
-        timeout=60,
-    )
+    # yt-dlpでまず試みる（クッキーあり→なしフォールバック）
+    data, _ = _ytdlp_fetch_json([], url, timeout=60)
     try:
-        data = json.loads(meta_raw)
+        if data is None:
+            raise ValueError("fetch failed")
         title       = data.get("title") or ""
         description = (data.get("description") or "")[:1500]
         uploader    = data.get("uploader") or data.get("channel") or ""
