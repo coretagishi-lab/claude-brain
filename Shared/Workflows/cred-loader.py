@@ -25,6 +25,7 @@ KEY_MAP: dict[str, dict[str, str]] = {
         "WEBHOOK_URL": "DISCORD_WEBHOOK_URL",
         "BOT_TOKEN":   "DISCORD_BOT_TOKEN",
         "CHANNEL_ID":  "DISCORD_BOT_CHANNEL_ID",
+        "DMM_CHANNEL_ID": "DISCORD_DMM_CHANNEL_ID",
         "OWNER_ID":    "DISCORD_OWNER_ID",
     },
     "CONOHA":    {
