@@ -26,6 +26,8 @@ KEY_MAP: dict[str, dict[str, str]] = {
         "BOT_TOKEN":   "DISCORD_BOT_TOKEN",
         "CHANNEL_ID":  "DISCORD_BOT_CHANNEL_ID",
         "DMM_CHANNEL_ID": "DISCORD_DMM_CHANNEL_ID",
+        "INBOX_CHANNEL_ID": "DISCORD_INBOX_CHANNEL_ID",
+        "NOTIFY_CHANNEL_ID": "DISCORD_NOTIFY_CHANNEL_ID",
         "OWNER_ID":    "DISCORD_OWNER_ID",
     },
     "CONOHA":    {

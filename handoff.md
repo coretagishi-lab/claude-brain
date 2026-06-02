@@ -10,105 +10,100 @@ updated: 2026-06-02
 
 ---
 
-## システム全体像
+## システム全体像（確定版）
 
 ```
-tagishi（Mac）
-  │
-  ├─ Claude Code（ターミナル）  ← 思考・生成・判断・API呼び出し
-  │    └─ AI-Brain Vault（~/Desktop/ClaudeProjects/AI-Brain/）← 記憶層
-  │
-  ├─ Notion  ← 人間UIとClaudeの共有作業台（承認・レビュー・タスク確認）
-  │
-  └─ ConoHa VPS 133.88.117.175  ← 自動化層（APIゼロ・判断しない）
-       └─ /opt/ai-brain/Shared/Workflows/
+tagishi
+  └─ Discord に投げるだけ
+       │
+       ├─ #inbox           タスク・指示・メモ
+       ├─ #dmm-素材投稿    漫画コマ画像 + タイトル + アフィURL
+       └─ #通知            VPS実行結果・Bot返信（読み取り専用）
+            │
+            ├─ API不要 → VPS Bot 即実行 → #通知に返信
+            │
+            └─ API必要 → Notionキュー（queued）
+                              └─ 次回 Claude Code セッションで処理
 ```
 
-**原則: 頭はターミナル・実行はVPS。VPSはAPIゼロ。判断が必要な場合はNotionキューに積んでターミナル待機。**
+**原則: tagishiはDiscordに投げるだけ。GitHubキュー・ファイルInbox廃止。**
 
 ---
 
-## 今日（2026-06-02）完成したもの
+## Discord チャンネル一覧（確定）
 
-### VPS 稼働中サービス（全5本）
+| チャンネル | ID | 用途 |
+|---|---|---|
+| `#inbox` | `1511214415611953214` | 全入力。API不要→即実行、API必要→Notionキュー |
+| `#dmm-素材投稿` | `1511211307788144650` | 漫画素材投稿→Notionキュー（queued） |
+| `#通知` | `1511214417990254664` | VPS実行結果・アラート出力専用 |
 
-| サービス | 内容 |
-|---|---|
-| `ai-brain-sync.timer` | 30分ごとVault→GitHub同期 ✅ 正常確認済み |
-| `ai-brain-memory-monitor.timer` | メモリ監視・800MB超でDiscord通知 |
-| `ai-brain-auth-monitor.timer` | 5分ごと認証エラー検出・自己修復 |
-| `ai-brain-morning-report.timer` | 毎朝8時 Discord日次レポート |
-| `ai-brain-discord-responder.service` | 常駐Bot（1/2返信受付のみ・APIゼロ） |
+---
 
-### インフラ整備（2026-06-02 完了）
+## 2026-06-02 完成したもの
 
-| 項目 | 状態 |
-|---|---|
-| VPS 日本語ロケール（ja_JP.UTF-8） | ✅ 設定済み |
-| GitHub token（inbox-mobile・有効期限なし） | ✅ 更新済み |
-| VPS sync 正常確認 | ✅ |
-| スマホ Inbox アプリ接続 | ✅ iPhone → GitHub 投稿フロー確認済み |
-| ConoHa エラーログクリア | ✅ |
+### VPS 稼働中サービス（全6本）
 
-### dmm-manga-affiliate パイプライン実装（2026-06-02 完了）
+| サービス | 内容 | 状態 |
+|---|---|---|
+| `ai-brain-sync.timer` | 30分ごとVault→GitHub同期 | ✅ |
+| `ai-brain-memory-monitor.timer` | メモリ監視・800MB超でDiscord通知 | ✅ |
+| `ai-brain-auth-monitor.timer` | 5分ごと認証エラー検出・自己修復 | ✅ |
+| `ai-brain-morning-report.timer` | 毎朝8時 Discord日次レポート | ✅ |
+| `ai-brain-discord-responder.service` | 旧Bot（1/2返信受付・後で統合予定） | ✅ |
+| `ai-brain-dmm-discord-watcher.service` | `#dmm-素材投稿`監視→Notionキュー登録 | ✅ 稼働中 |
+
+### 実装済みスクリプト（dmm-manga-affiliate）
 
 | ファイル | 役割 |
 |---|---|
-| `Projects/dmm-manga-affiliate/Workflows/generate-content.py` | STEP 1: Claude API 1回 → 台本・タイトル・説明文生成 → Notion投稿 |
-| `Projects/dmm-manga-affiliate/Workflows/setup-notion-db.py` | Notionコンテンツ審査DB作成（初回のみ） |
-| `Projects/dmm-manga-affiliate/Workflows/vps-assemble-video.py` | STEP 3: Notion approved → VOICEVOX + ffmpeg 動画生成 |
-| `Projects/dmm-manga-affiliate/Workflows/vps-youtube-upload.py` | STEP 5: YouTube Data API 自動投稿 |
-| `Projects/dmm-manga-affiliate/Knowledge/experience.md` | 台本品質改善ログ |
+| `Workflows/dmm-discord-watcher.py` | STEP 2: #dmm-素材投稿 監視→Notionキュー登録 |
+| `Workflows/generate-content.py` | STEP 3: Claude API→台本・タイトル・説明文→Notion |
+| `Workflows/vps-assemble-video.py` | STEP 6: VOICEVOX+ffmpeg動画生成（骨格） |
+| `Workflows/vps-youtube-upload.py` | STEP 8: YouTube自動投稿（骨格） |
+| `Knowledge/experience.md` | 台本品質改善ログ |
 
-**Notion コンテンツ審査 DB:**  
-`NOTION_CONTENT_DB_ID=3731cad4aa98810e82f8c0f99a483cbb`（ローカル・VPS設定済み）
+### Notion コンテンツ審査 DB
+
+`NOTION_CONTENT_DB_ID=3731cad4aa98810e82f8c0f99a483cbb`（VPS・ローカル設定済み）
+
+ステータス遷移: `queued → draft → approved → canva_ready → final → uploaded`
 
 ---
 
-## フロー確定（2026-06-02）
-
-**9ステップ確定フロー（詳細は master-context.md セクション9参照）:**
+## dmm-manga-affiliate 9ステップフロー（詳細はmaster-context.md セクション9）
 
 ```
-tagishi Discord投稿（画像+タイトル+アフィURL）
-  → VPS Discord Bot → Notionキュー（queued）
-  → Mac定時処理 → Claude API台本生成 → Notion（draft）
-  → tagishi Notion承認（approved）
-  → Mac定時処理 → Canva配置指示生成 → VPSトリガー
-  → VPS Canva組立 → Notion（canva_ready）
-  → tagishi 確認（final）
-  → VPS YouTube + X投稿（uploaded）
-  → VPS Analytics → Notion記録
+tagishi: #dmm-素材投稿 に画像+タイトル+アフィURL投稿
+  → [VPS] Bot検知 → Notion（queued）
+  → [Mac定時] Claude API台本生成 → Notion（draft）
+  → [tagishi] Notion承認（approved）
+  → [Mac定時] Canva配置指示生成 → VPSトリガー
+  → [VPS] Canva組立 → Notion（canva_ready）
+  → [tagishi] Canva確認（final）
+  → [VPS] YouTube + X投稿（uploaded）
+  → [VPS定期] Analytics → Notion記録
 ```
-
-**Notion追加フィールド:** `source_discord_url`・`api_cost_estimate`
 
 ---
 
 ## 次にやること（優先順）
 
-1. **VPS Discord Botを実装する（STEP 2）**
-   - `Projects/dmm-manga-affiliate/Workflows/dmm-discord-watcher.py` を作成
-   - Discord専用チャンネルの画像+テキスト+投稿URLを取得→Notionキュー登録
-   - systemdサービスとして常駐: `ai-brain-dmm-discord-watcher.service`
+1. **`#inbox` Bot実装**（API不要即実行 / API必要キュー登録のルーター）
+   - `Shared/Workflows/discord-inbox-bot.py` を新規作成
+   - `ai-brain-discord-inbox-bot.service` でVPS常駐
+   - `#通知` チャンネルへの送信ヘルパーも同スクリプト内に実装
 
-2. **Mac定時処理スクリプトを実装する（STEP 3・5）**
-   - `queue-processor.py`: queued → Claude API台本生成 → draft
-   - `canva-instructions.py`: approved → Canva配置指示生成 → VPSトリガー
+2. **Mac定時処理スクリプト実装（STEP 3・5）**
+   - `queue-processor.py`: Notion queued → Claude API台本生成 → draft
+   - `canva-instructions.py`: Notion approved → Canva配置指示 → VPSトリガー
    - launchd plistで30分おき自動実行
 
-3. **Notion DBにフィールド追加**
-   - `source_discord_url`（url型）
-   - `api_cost_estimate`（rich_text型）
-
-4. **VPS Canva組立・投稿スクリプト実装（STEP 6・8）**
-   - `dmm-canva-assembler.py`・`dmm-publisher.py`
-
-5. **ANTHROPIC_API_KEY 更新**（現在のキーが401エラー）
+3. **ANTHROPIC_API_KEY 更新**（現在401エラー）
    - console.anthropic.com で新しいキーを発行
    - VPS tokens.md + ローカル ~/.zshrc を更新
 
-6. **ConoHa APIパスワード再設定**（tagishi手動）→ 残高監視有効化
+4. **ConoHa APIパスワード再設定**（tagishi手動）→ 残高監視有効化
 
 ---
 
@@ -121,18 +116,15 @@ tagishi Discord投稿（画像+タイトル+アフィURL）
 2: 待って
 ```
 
-### APIゼロ原則
-- VPS は Claude API を一切使わない
-- VPS が判断できない問題 → `discord-ask.py` で質問 or `vps-task-reporter.py` でNotionキュー登録
-- ターミナルからVPSへの指示は詳細に書いて判断不要な状態で渡す
+### Discord一本化原則
+- tagishiはDiscordに投げるだけ。GitHubキュー・ファイルInboxは廃止済み
+- API不要タスク → VPS Bot即実行 → `#通知`に結果
+- API必要タスク → Notionキュー → 次回セッション開始時に処理
 
 ### コスト設計
-- モデルは Sonnet 固定（Opus 禁止）
+- モデルはSonnet固定（Opus禁止）
 - 漫画アフィリエイト: API使用は台本生成1回/本 + 分析週1回のみ
 - 離席前に `/clear`
-
-### ファイル・フォーマットの自律判断
-ファイルの構造・番号・順番・フォーマットに関する判断は全て自律で行う。tagishiに確認しない。
 
 ---
 
@@ -145,6 +137,7 @@ tagishi Discord投稿（画像+タイトル+アフィURL）
 | 認証情報 | `/opt/ai-brain/.credentials/tokens.md`（chmod 600） |
 | GitHub リポジトリ | `coretagishi-lab/claude-brain`（main ブランチ） |
 | Notion Outbox DB | `36f1cad4-aa98-81fb-93d8-d40bfb95cff9` |
+| Notion コンテンツ審査DB | `3731cad4aa98810e82f8c0f99a483cbb` |
 | Vault ローカル | `~/Desktop/ClaudeProjects/AI-Brain/` |
 
 ---
@@ -155,8 +148,8 @@ tagishi Discord投稿（画像+タイトル+アフィURL）
 # 1. VPS待機タスク確認（最優先）
 python3 Shared/Workflows/vps-task-checker.py
 
-# 2. Inboxキュー確認
-python3 Shared/Workflows/queue.py status
+# 2. Notionキュー確認（queued件数）
+#    → セッション中に処理する
 
 # 3. このファイルを読んだ → 作業開始
 ```
