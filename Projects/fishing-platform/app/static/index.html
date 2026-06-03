@@ -318,7 +318,6 @@ input[type=file]{display:none}
 <div id="mode-bar">
   <div class="mode-pill active" data-mode="catches">📍 釣果</div>
   <div class="mode-pill" data-mode="heatmap">🌡 ヒートマップ</div>
-  <div class="mode-pill" data-mode="ecology">🧬 生態AI</div>
   <div class="mode-pill" data-mode="tackle">🎣 釣具店</div>
   <div class="mode-pill" data-mode="boats">⛵ 遊漁船</div>
   <div class="mode-pill" data-mode="anglers">🎣 釣行中</div>
@@ -483,16 +482,18 @@ let isFishing=false;
 let roomMap=null, roomMarkers=[];
 let currentRoom=null;
 
-// ── Mock boats (expanded) ──────────────────────────────────────
-const MOCK_BOATS=[
-  {name:"第一漁丸",  captain:"田中船長",target:"タチウオ",    price:"¥15,000/人",cap:8,  url:"https://example.com/dai1"},
-  {name:"海鷹丸",   captain:"鈴木船長",target:"シーバス",    price:"¥10,000/人",cap:6,  url:"https://example.com/kaitaka"},
-  {name:"大漁丸",   captain:"佐藤船長",target:"ブリ・マダイ", price:"¥20,000/人",cap:10, url:"https://example.com/tairyo"},
-  {name:"幸運丸",   captain:"山田船長",target:"アジ・サバ",   price:"¥8,000/人", cap:12, url:"https://example.com/kouun"},
-  {name:"海龍丸",   captain:"中村船長",target:"ヒラメ",      price:"¥18,000/人",cap:8,  url:"https://example.com/kairyu"},
-  {name:"黒潮丸",   captain:"伊藤船長",target:"カツオ",      price:"¥22,000/人",cap:10, url:"https://example.com/kuroshio"},
-  {name:"波乗り丸", captain:"渡辺船長",target:"マダコ",      price:"¥7,000/人", cap:8,  url:"https://example.com/naminori"},
-  {name:"飛魚丸",   captain:"小林船長",target:"イカ",        price:"¥12,000/人",cap:6,  url:"https://example.com/tobio"},
+// ── Boats data (実在港座標) ──────────────────────────────────────
+const BOATS_DATA=[
+  {name:"葛西臨海公園沖",port:"葛西",lat:35.657,lng:139.868,target:"シーバス・アジ・タチウオ",price:"¥8,000〜",cap:8},
+  {name:"金沢八景港",port:"金沢八景",lat:35.344,lng:139.637,target:"アジ・タコ・ヒラメ・カサゴ",price:"¥7,500〜",cap:10},
+  {name:"久里浜港",port:"久里浜",lat:35.217,lng:139.714,target:"アジ・マダイ・ブリ・ヒラメ",price:"¥12,000〜",cap:12},
+  {name:"横浜本牧港",port:"横浜本牧",lat:35.426,lng:139.668,target:"アジ・カサゴ・タコ",price:"¥9,000〜",cap:8},
+  {name:"鶴見港",port:"鶴見",lat:35.497,lng:139.672,target:"シーバス・タチウオ・アナゴ",price:"¥10,000〜",cap:6},
+  {name:"富津港",port:"千葉富津",lat:35.298,lng:139.823,target:"マダイ・ヒラメ・アジ",price:"¥13,000〜",cap:10},
+  {name:"羽田空港沖",port:"羽田",lat:35.549,lng:139.769,target:"シーバス・タチウオ・イシモチ",price:"¥9,500〜",cap:8},
+  {name:"茅ヶ崎港",port:"茅ヶ崎",lat:35.320,lng:139.402,target:"カツオ・ブリ・シイラ",price:"¥14,000〜",cap:12},
+  {name:"平塚港",port:"平塚",lat:35.328,lng:139.356,target:"アジ・カサゴ・マダイ",price:"¥11,000〜",cap:10},
+  {name:"浦安港",port:"浦安",lat:35.645,lng:139.907,target:"シーバス・アジ・ハゼ",price:"¥7,000〜",cap:8},
 ];
 
 // ── Auth ─────────────────────────────────────────────────────
@@ -555,12 +556,29 @@ function initMap(){
 
 // ── Geolocation ──────────────────────────────────────────────
 function getMyLocation(cb){
-  if(!navigator.geolocation){ myLat=35.68;myLng=139.69;updateMyMarker();if(cb)cb(myLat,myLng);return; }
-  navigator.geolocation.getCurrentPosition(
-    p=>{ myLat=p.coords.latitude;myLng=p.coords.longitude;updateMyMarker();if(cb)cb(myLat,myLng); },
-    ()=>{ myLat=35.68;myLng=139.69;updateMyMarker();if(cb)cb(myLat,myLng); },
-    {enableHighAccuracy:true,timeout:8000}
-  );
+  if(navigator.geolocation){
+    navigator.geolocation.getCurrentPosition(
+      p=>{myLat=p.coords.latitude;myLng=p.coords.longitude;updateMyMarker();if(cb)cb(myLat,myLng);},
+      ()=>_geoFallback(cb),
+      {enableHighAccuracy:false,timeout:6000,maximumAge:60000}
+    );
+  }else{
+    _geoFallback(cb);
+  }
+}
+async function _geoFallback(cb){
+  try{
+    const r=await fetch('https://ip-api.com/json/?fields=status,lat,lon');
+    const d=await r.json();
+    if(d.status==='success'&&d.lat){
+      myLat=d.lat;myLng=d.lon;
+      updateMyMarker();showToast('📍 IP位置情報を使用（概算）');
+      if(cb)cb(myLat,myLng);return;
+    }
+  }catch(e){}
+  myLat=35.68;myLng=139.69;
+  updateMyMarker();showToast('📍 東京デフォルト位置を使用');
+  if(cb)cb(myLat,myLng);
 }
 
 function updateMyMarker(){
@@ -581,10 +599,9 @@ function clearAllLayers(){
 
 async function refreshMap(){
   clearAllLayers();
-  if(currentMode!=='ecology') clearEcologyCard();
+  if(currentMode!=='heatmap') clearEcologyCard();
   if(currentMode==='catches') await loadCatches();
   else if(currentMode==='heatmap') await renderHeatmap();
-  else if(currentMode==='ecology') await loadEcologyMap();
   else if(currentMode==='tackle') await loadTackleShops();
   else if(currentMode==='boats') renderBoats();
   else if(currentMode==='anglers') await loadFishingAnglers();
@@ -630,15 +647,30 @@ async function renderHeatmap(){
     const q=new URLSearchParams();
     if(currentPeriod!=='all') q.set('period',currentPeriod);
     if(filterSpecies) q.set('species',filterSpecies);
-    const data=await fetch(`${API}/api/heatmap?${q}`).then(r=>r.json());
-    if(!data.length){showToast('ヒートマップデータなし');return;}
-    const maxC=Math.max(...data.map(d=>d.count),1);
+    const sp=filterSpecies||'シーバス';
+    const [catchData,ecoData]=await Promise.all([
+      fetch(`${API}/api/heatmap?${q}`).then(r=>r.json()),
+      myLat?fetch(`${API}/api/ecological-heatmap?lat=${myLat}&lng=${myLng}&species=${encodeURIComponent(sp)}&radius=20`).then(r=>r.json()):Promise.resolve(null),
+    ]);
+    const pts=[];
+    if(ecoData&&ecoData.points&&ecoData.points.length){
+      const eMax=Math.max(...ecoData.points.map(p=>p.score),0.01);
+      ecoData.points.forEach(p=>pts.push([p.lat,p.lng,p.score/eMax*0.55]));
+      showEcologyCard(ecoData);
+    }
+    if(catchData&&catchData.length){
+      const cMax=Math.max(...catchData.map(d=>d.count),1);
+      catchData.forEach(d=>pts.push([d.grid_lat,d.grid_lng,d.count/cMax]));
+    }
+    if(!pts.length){showToast('ヒートマップデータなし');return;}
     const zoom=map.getZoom();
-    const radius=Math.max(15,Math.min(50,zoom*4-20));
-    const points=data.map(d=>[d.grid_lat,d.grid_lng,d.count/maxC]);
-    heatLayer=L.heatLayer(points,{radius,blur:radius*0.8,maxZoom:18,gradient:{0.2:'#00c9b1',0.5:'#f5a623',0.8:'#e74c3c',1:'#c0392b'}}).addTo(map);
-    showToast(`ヒートマップ: ${data.length}エリア`);
-  }catch(e){showToast('ヒートマップ取得失敗','error');}
+    const radius=Math.max(18,Math.min(50,zoom*4-18));
+    heatLayer=L.heatLayer(pts,{radius,blur:radius*0.75,maxZoom:18,max:1.0,
+      gradient:{0.0:'#001a33',0.3:'#003d6e',0.55:'#00c9b1',0.75:'#f5a623',0.9:'#e74c3c',1:'#c0392b'}
+    }).addTo(map);
+    const info=catchData&&catchData.length?`釣果${catchData.length}件+`:'';
+    showToast(`🌡 ヒートマップ: ${info}生態AI(${sp})`);
+  }catch(e){console.error(e);showToast('ヒートマップ取得失敗','error');}
 }
 
 // ── Tackle shops ──────────────────────────────────────────────
@@ -648,7 +680,7 @@ async function loadTackleShops(){
   // 検索範囲を少し広げる
   const pad=0.1;
   const bbox=`${b.getSouth()-pad},${b.getWest()-pad},${b.getNorth()+pad},${b.getEast()+pad}`;
-  const query=`[out:json][timeout:30];(node["shop"="fishing"](${bbox});node["shop"="tackle"](${bbox});way["shop"="fishing"](${bbox});way["shop"="tackle"](${bbox});relation["shop"="fishing"](${bbox});node["sport"="fishing"]["name"](${bbox}););out center;`;
+  const query=`[out:json][timeout:30];(node["shop"="fishing"](${bbox});node["shop"="tackle"](${bbox});node["shop"="fishing_tackle"](${bbox});node["shop"="sports"]["sport"="fishing"](${bbox});node["name"~"上州屋|タックルベリー|キャスティング|フィッシング|つり具|釣具|つり|アングラーズ|ポイント",i](${bbox});way["shop"="fishing"](${bbox});way["shop"="tackle"](${bbox});way["name"~"上州屋|タックルベリー|キャスティング|フィッシング|つり具|釣具",i](${bbox});relation["shop"="fishing"](${bbox}););out center;`;
   try{
     const data=await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`).then(r=>r.json());
     data.elements.forEach(el=>{
@@ -668,18 +700,20 @@ async function loadTackleShops(){
 
 // ── Fishing boats (red glow dots) ────────────────────────────
 function renderBoats(){
-  const center=map.getCenter();
-  MOCK_BOATS.forEach((boat,i)=>{
-    const angle=(i/MOCK_BOATS.length)*2*Math.PI;
-    const dist=0.02+Math.random()*0.05;
-    const lat=center.lat+dist*Math.cos(angle);
-    const lng=center.lng+dist*Math.sin(angle);
+  BOATS_DATA.forEach(boat=>{
     const icon=L.divIcon({className:'',html:`<div class="glow-dot" style="background:var(--red)"></div>`,iconSize:[12,12],iconAnchor:[6,6]});
-    const m=L.marker([lat,lng],{icon}).addTo(map);
-    m.bindPopup(`<div style="min-width:180px"><div style="font-weight:700;font-size:0.95rem;margin-bottom:8px;color:var(--white)">⛵ ${boat.name}</div><div style="font-size:0.78rem;color:var(--gray);line-height:1.9">👨‍✈️ ${boat.captain}<br>🎣 ${boat.target}<br>💴 ${boat.price}<br>👥 定員 ${boat.cap}名</div>${boat.url?`<div style="margin-top:8px"><a href="${boat.url}" target="_blank" style="font-size:0.72rem;color:#4f9eff">🌐 HPを見る</a></div>`:''}<div style="font-size:0.6rem;color:var(--gray);margin-top:6px">※ サンプルデータ</div></div>`);
+    const m=L.marker([boat.lat,boat.lng],{icon}).addTo(map);
+    m.bindTooltip(boat.port,{permanent:true,className:'tackle-label',offset:[12,-8],direction:'right'});
+    m.bindPopup(`<div style="min-width:180px">
+      <div style="font-weight:700;font-size:0.95rem;margin-bottom:6px;color:var(--white)">⛵ ${boat.name}</div>
+      <div style="font-size:0.78rem;color:var(--gray);line-height:2.0">
+        📍 ${boat.port}<br>🎣 ${boat.target}<br>💴 ${boat.price}<br>👥 定員 ${boat.cap}名
+      </div>
+      <div style="font-size:0.6rem;color:var(--gray);margin-top:6px">※参考データ・詳細は各港にお問い合わせください</div>
+    </div>`);
     boatMarkers.push(m);
   });
-  showToast(`遊漁船 ${boatMarkers.length}件（サンプル）`);
+  showToast(`遊漁船港 ${boatMarkers.length}箇所（東京湾・相模湾）`);
 }
 
 // ── Fishing anglers nearby ────────────────────────────────────
@@ -1003,7 +1037,7 @@ document.getElementById('tab-register').addEventListener('click',()=>{
 document.querySelectorAll('.mode-pill').forEach(p=>p.addEventListener('click',()=>{
   document.querySelectorAll('.mode-pill').forEach(x=>x.classList.remove('active'));
   p.classList.add('active'); currentMode=p.dataset.mode;
-  const showF=['catches','heatmap','ecology'].includes(currentMode);
+  const showF=['catches','heatmap'].includes(currentMode);
   ['period-row-wrap','species-row-wrap'].forEach(id=>document.getElementById(id).classList.toggle('hidden',!showF));
   refreshMap();
 }));
