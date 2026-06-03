@@ -280,5 +280,14 @@ def species_ecology():
         for k, v in db.SPECIES_ECOLOGY.items()
     ]
 
+@app.get("/api/water-heatmap")
+def water_heatmap(
+    lat: float = 35.68,
+    lng: float = 139.69,
+    species: str = "シーバス",
+    radius: float = 15,
+):
+    return db.get_water_heatmap(lat, lng, species, min(float(radius), 25))
+
 app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")

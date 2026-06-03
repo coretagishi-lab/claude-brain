@@ -729,9 +729,9 @@ function addCatchPin(c){
   catchMarkers.push(m);
 }
 
-// ── Heatmap (Canvas直接描画) ──────────────────────────────────
+// ── Heatmap (水辺Canvas描画) ──────────────────────────────────
 async function renderHeatmap(){
-  showToast('🌡 ヒートマップ計算中...');
+  showToast('🌡 水辺ヒートマップ計算中...');
   removeCanvasHeat();
   try{
     const lat=myLat||map.getCenter().lat;
@@ -740,16 +740,15 @@ async function renderHeatmap(){
     const q=new URLSearchParams();
     if(currentPeriod!=='all') q.set('period',currentPeriod);
     if(filterSpecies) q.set('species',filterSpecies);
-    const [catchData,ecoData]=await Promise.all([
+    const [catchData,waterData]=await Promise.all([
       fetch(`${API}/api/heatmap?${q}`).then(r=>r.json()).catch(()=>[]),
-      fetch(`${API}/api/ecological-heatmap?lat=${lat}&lng=${lng}&species=${encodeURIComponent(sp)}&radius=20`)
+      fetch(`${API}/api/water-heatmap?lat=${lat}&lng=${lng}&species=${encodeURIComponent(sp)}&radius=15`)
         .then(r=>r.json()).catch(()=>null),
     ]);
     const pts=[];
-    if(ecoData&&ecoData.points&&ecoData.points.length){
-      const eMax=Math.max(...ecoData.points.map(p=>p.score),0.01);
-      ecoData.points.forEach(p=>pts.push({lat:p.lat,lng:p.lng,score:p.score/eMax}));
-      // 生態カードは表示しない（魚種フィルターのみ）
+    if(waterData&&waterData.points&&waterData.points.length){
+      const wMax=Math.max(...waterData.points.map(p=>p.score),0.01);
+      waterData.points.forEach(p=>pts.push({lat:p.lat,lng:p.lng,score:p.score/wMax}));
     }
     if(catchData&&catchData.length){
       const cMax=Math.max(...catchData.map(d=>d.count),1);
@@ -757,8 +756,10 @@ async function renderHeatmap(){
     }
     if(!pts.length){showToast('ヒートマップデータなし');return;}
     canvasHeatLayer=createCanvasHeatmap(map,pts);
-    const info=catchData&&catchData.length?`釣果${catchData.length}件+`:'';
-    showToast(`🌡 ${info}生態AI: ${sp} (${pts.length}pt)`);
+    const wtype=waterData?.water_based?'水辺限定':'生態AI';
+    const cinfo=catchData?.length?`釣果${catchData.length}件+`:'';
+    const fcnt=waterData?.features_count??0;
+    showToast(`🌡 ${cinfo}${wtype}: ${sp} (${pts.length}pt, OSM${fcnt}件)`);
   }catch(e){console.error('heatmap:',e);showToast('ヒートマップ取得失敗','error');}
 }
 

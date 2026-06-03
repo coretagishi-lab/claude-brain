@@ -1,4 +1,4 @@
-import sqlite3, random, math
+import sqlite3, random, math, time as _time
 import bcrypt as _bcrypt
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -604,4 +604,182 @@ def get_ecological_heatmap(lat: float, lng: float, species: str = "シーバス"
         "species": species,
         "habitat": eco.get("habitat", ""),
         "bait": eco.get("bait", []),
+    }
+
+# ── Phase 4+: 水辺限定ヒートマップ ───────────────────────────────
+
+_water_feat_cache: dict = {}
+_WATER_CACHE_TTL = 1800  # 30分キャッシュ
+
+def _overpass_fetch_osm(query: str) -> dict:
+    """Overpass API取得（フォールバック付き）。"""
+    import urllib.request, urllib.parse, json as _j
+    for srv in ["https://overpass-api.de/api/interpreter",
+                "https://overpass.kumi.systems/api/interpreter"]:
+        try:
+            url = f"{srv}?data={urllib.parse.quote(query)}"
+            req = urllib.request.Request(url, headers={"User-Agent": "AnglerMap/5.0"})
+            with urllib.request.urlopen(req, timeout=22) as r:
+                return _j.loads(r.read())
+        except Exception:
+            continue
+    return {"elements": []}
+
+def _get_water_features(lat: float, lng: float, radius_km: float = 15) -> list:
+    """OSMから水辺・構造物フィーチャーを取得（TTLキャッシュ付き）。"""
+    bucket = f"{round(lat*5)/5:.1f},{round(lng*5)/5:.1f},{int(radius_km)}"
+    now = _time.time()
+    if bucket in _water_feat_cache:
+        ts, data = _water_feat_cache[bucket]
+        if now - ts < _WATER_CACHE_TTL:
+            return data
+
+    r_lat = radius_km / 111.0
+    r_lng = radius_km / (111.0 * max(0.01, math.cos(math.radians(lat))))
+    bbox = f"{lat-r_lat:.5f},{lng-r_lng:.5f},{lat+r_lat:.5f},{lng+r_lng:.5f}"
+
+    query = (
+        f"[out:json][timeout:25];\n("
+        f'way["natural"="water"]({bbox});'
+        f'way["waterway"~"river|stream|canal|ditch"]({bbox});'
+        f'relation["natural"="water"]({bbox});'
+        f'way["natural"~"coastline|bay|sea"]({bbox});'
+        f'node["leisure"="fishing"]({bbox});'
+        f'node["man_made"~"pier|breakwater|groyne"]({bbox});'
+        f'way["man_made"~"pier|breakwater|groyne"]({bbox});'
+        f'way["bridge"="yes"]({bbox});'
+        f'node["highway"="street_lamp"]({bbox});'
+        f");\nout center;"
+    )
+
+    raw = _overpass_fetch_osm(query)
+
+    type_map = {
+        "natural":   {"water":"water","bay":"water","sea":"water","coastline":"coastline"},
+        "waterway":  {"river":"river","stream":"river","canal":"canal","ditch":"canal"},
+        "leisure":   {"fishing":"fishing"},
+        "man_made":  {"pier":"pier","breakwater":"breakwater","groyne":"breakwater"},
+        "bridge":    {"yes":"bridge"},
+        "highway":   {"street_lamp":"light"},
+    }
+
+    feats: list = []
+    counts: dict = {}
+    CAPS = {"light":200,"water":150,"river":150,"canal":100,"bridge":80,"pier":80,"breakwater":80,"fishing":80,"coastline":100}
+
+    for el in raw.get("elements", []):
+        la = el.get("lat") or (el.get("center") or {}).get("lat")
+        lo = el.get("lon") or (el.get("center") or {}).get("lon")
+        if not la or not lo:
+            continue
+        tags = el.get("tags", {})
+        ftype = None
+        for tk, tv_map in type_map.items():
+            tv = tags.get(tk, "")
+            if tv in tv_map:
+                ftype = tv_map[tv]
+                break
+        if ftype and counts.get(ftype, 0) < CAPS.get(ftype, 100):
+            feats.append({"lat": float(la), "lng": float(lo), "type": ftype})
+            counts[ftype] = counts.get(ftype, 0) + 1
+
+    _water_feat_cache[bucket] = (now, feats)
+    return feats
+
+def _dist_km(la1: float, lo1: float, la2: float, lo2: float) -> float:
+    clat = math.cos(math.radians((la1 + la2) / 2))
+    return math.sqrt(((la2 - la1) * 111) ** 2 + ((lo2 - lo1) * 111 * clat) ** 2)
+
+def _score_near_water(g_lat: float, g_lng: float, species: str,
+                      features: list, env: dict) -> float:
+    """水辺グリッドポイントのスコア計算（0-100）。水辺でなければ0。"""
+    WATER_TYPES = {"water", "coastline", "river", "canal", "fishing", "pier", "breakwater", "bridge"}
+    WATER_RANGE  = 0.7   # km: この範囲内なら「水辺」と判定
+
+    min_w = min(
+        (_dist_km(g_lat, g_lng, f["lat"], f["lng"]) for f in features if f["type"] in WATER_TYPES),
+        default=9999.0
+    )
+    if min_w > WATER_RANGE:
+        return 0.0
+
+    # 基礎スコア（水辺密着度）
+    score = max(0.0, 40.0 * (1.0 - min_w / WATER_RANGE))
+
+    eco   = SPECIES_ECOLOGY.get(species, {})
+    temp  = env.get("sea_temp", 18.0)
+    tide  = env.get("tide_current", "")
+
+    # 水温ボーナス
+    t_lo, t_hi   = eco.get("temp_range", (10, 28))
+    t_pk_lo, t_pk_hi = eco.get("temp_peak", (15, 25))
+    if t_lo <= temp <= t_hi:
+        score += 20 if (t_pk_lo <= temp <= t_pk_hi) else 10
+
+    # 潮汐ボーナス
+    tp = eco.get("tide_pref", "any")
+    if   tp == "rising"  and "上げ" in tide: score += 20
+    elif tp == "falling" and "下げ" in tide: score += 20
+    elif tp == "any":                         score += 8
+
+    # 魚種別・構造物ボーナス
+    for f in features:
+        d  = _dist_km(g_lat, g_lng, f["lat"], f["lng"])
+        ft = f["type"]
+        if   species == "シーバス":
+            if   ft == "bridge"             and d < 0.15: score += 40 * (1 - d/0.15)
+            elif ft == "light"              and d < 0.05: score += 15 * (1 - d/0.05)
+            elif ft in ("river","canal")    and d < 0.10: score += 35 * (1 - d/0.10)
+        elif species == "チヌ":
+            if   ft in ("breakwater","pier") and d < 0.12: score += 40 * (1 - d/0.12)
+            if "下げ" in tide: score += 5
+        elif species in ("アジ","メバル"):
+            if   ft == "light"              and d < 0.05: score += 45 * (1 - d/0.05)
+            elif ft in ("pier","fishing")   and d < 0.20: score += 25 * (1 - d/0.20)
+        elif species == "根魚":
+            if   ft in ("breakwater","pier") and d < 0.10: score += 45 * (1 - d/0.10)
+        elif species == "ヒラメ":
+            if   ft in ("river","canal")    and d < 0.15: score += 30 * (1 - d/0.15)
+
+    return min(100.0, score)
+
+def get_water_heatmap(lat: float, lng: float, species: str = "シーバス", radius_km: float = 15) -> dict:
+    """水辺限定ヒートマップ生成。水辺フィーチャー取得→グリッドスコアリング→返却。"""
+    env      = _get_env_data(lat, lng)
+    features = _get_water_features(lat, lng, radius_km)
+
+    lat_step = 0.01
+    lng_step = lat_step / max(0.01, math.cos(math.radians(lat)))
+    steps    = max(1, int(radius_km / 1.1))
+
+    points: list = []
+    for di in range(-steps, steps + 1):
+        for dj in range(-steps, steps + 1):
+            g_lat = lat + di * lat_step
+            g_lng = lng + dj * lng_step
+            dlat  = (g_lat - lat) * 111
+            dlng  = (g_lng - lng) * 111 * math.cos(math.radians(lat))
+            if math.sqrt(dlat**2 + dlng**2) > radius_km:
+                continue
+            s = _score_near_water(g_lat, g_lng, species, features, env)
+            if s > 3:
+                points.append({"lat": round(g_lat, 4), "lng": round(g_lng, 4), "score": round(s / 100, 3)})
+
+    # フォールバック: 水辺データなし → 生態ヒートマップ
+    if not points:
+        eco_result = get_ecological_heatmap(lat, lng, species, radius_km)
+        eco_result["water_based"] = False
+        return eco_result
+
+    return {
+        "points":         points,
+        "features_count": len(features),
+        "env": {
+            "sea_temp":     round(env.get("sea_temp", 18), 1),
+            "tide_current": env.get("tide_current", ""),
+            "tide_type":    env.get("tide_type", ""),
+            "moon_phase":   env.get("moon_phase", ""),
+        },
+        "species":    species,
+        "water_based": True,
     }
