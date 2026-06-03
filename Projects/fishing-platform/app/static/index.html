@@ -11,269 +11,264 @@
 <link rel="manifest" href="/manifest.json">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
 <style>
 :root{
   --navy:#0a1628;--navy2:#0f2040;--teal:#00c9b1;--teal2:#00a896;
-  --amber:#f5a623;--slate:#1e3a5f;--gray:#8aa4c0;--white:#f0f8ff;--text:#c8dff0;
-  --safe-top:env(safe-area-inset-top,0px);
-  --safe-bottom:env(safe-area-inset-bottom,0px);
+  --amber:#f5a623;--red:#ff2244;--gray:#8aa4c0;--white:#f0f8ff;--text:#c8dff0;
+  --safe-top:env(safe-area-inset-top,0px);--safe-bottom:env(safe-area-inset-bottom,0px);
 }
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{height:100%;background:var(--navy);color:var(--text);font-family:-apple-system,'Noto Sans JP',sans-serif;overflow:hidden}
 
-/* ── MAP ── */
-#map{position:fixed;inset:0;z-index:1}
-.leaflet-container{background:#071422}
-.leaflet-control-attribution{display:none}
+/* ── MAP (dark + japanese) ── */
+#map{position:fixed;inset:0;z-index:1;will-change:transform}
+.leaflet-container{background:#0d0d1a}
+.leaflet-control-attribution{font-size:0.55rem!important;opacity:0.6;background:rgba(0,0,0,0.4)!important;color:#aaa!important}
+.leaflet-control-attribution a{color:#8af!important}
+.leaflet-map-pane,.leaflet-tile,.leaflet-marker-pane{will-change:transform}
 
 /* ── HEADER ── */
-#header{
-  position:fixed;top:0;left:0;right:0;z-index:10;
-  padding:calc(var(--safe-top) + 10px) 16px 10px;
-  background:linear-gradient(to bottom,rgba(10,22,40,0.95),transparent);
-  display:flex;align-items:center;justify-content:space-between;
-  pointer-events:none;
-}
+#header{position:fixed;top:0;left:0;right:0;z-index:10;
+  padding:calc(var(--safe-top)+10px) 16px 10px;
+  background:linear-gradient(to bottom,rgba(10,22,40,0.96),transparent);
+  display:flex;align-items:center;justify-content:space-between;pointer-events:none}
 #header>*{pointer-events:auto}
-.logo{font-size:1.15rem;font-weight:900;color:var(--teal);letter-spacing:1px;text-decoration:none}
+.logo{font-size:1.1rem;font-weight:900;color:var(--teal);letter-spacing:1px;text-decoration:none}
 .logo span{color:var(--amber)}
-#stats-bar{
-  display:flex;gap:8px;
-}
-.stat-pill{
-  background:rgba(10,22,40,0.85);backdrop-filter:blur(8px);
-  border:1px solid rgba(0,201,177,0.25);border-radius:20px;
-  padding:4px 10px;font-size:0.72rem;color:var(--teal);
-}
+#header-right{display:flex;align-items:center;gap:8px}
+.stat-pill{background:rgba(10,22,40,0.85);backdrop-filter:blur(8px);border:1px solid rgba(0,201,177,0.25);border-radius:20px;padding:4px 10px;font-size:0.7rem;color:var(--teal)}
+#profile-btn{width:34px;height:34px;border-radius:50%;border:2px solid var(--teal);background:rgba(0,201,177,0.15);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:1rem;overflow:hidden}
+#profile-btn img{width:100%;height:100%;object-fit:cover;border-radius:50%}
+
+/* ── MODE BAR ── */
+#mode-bar{position:fixed;top:calc(var(--safe-top)+52px);left:0;right:0;z-index:9;
+  display:flex;gap:6px;padding:0 12px;overflow-x:auto;scrollbar-width:none}
+#mode-bar::-webkit-scrollbar{display:none}
+.mode-pill{flex-shrink:0;padding:5px 12px;border-radius:16px;background:rgba(10,22,40,0.9);backdrop-filter:blur(8px);
+  border:1px solid rgba(0,201,177,0.2);font-size:0.72rem;color:var(--gray);cursor:pointer;transition:all .15s;white-space:nowrap}
+.mode-pill.active{background:rgba(0,201,177,0.18);border-color:var(--teal);color:var(--teal)}
+
+/* ── FILTER BAR ── */
+#filter-bar{position:fixed;top:calc(var(--safe-top)+84px);left:0;right:0;z-index:9;
+  display:flex;flex-direction:column;gap:4px;padding:0 12px;transition:opacity .2s}
+#filter-bar.hidden{opacity:0;pointer-events:none}
+.filter-row{display:flex;gap:5px;overflow-x:auto;scrollbar-width:none}
+.filter-row::-webkit-scrollbar{display:none}
+.fpill{flex-shrink:0;padding:3px 10px;border-radius:12px;border:1px solid rgba(255,255,255,0.1);cursor:pointer;
+  background:rgba(10,22,40,0.85);backdrop-filter:blur(6px);font-size:0.67rem;color:var(--gray);
+  pointer-events:auto;transition:all .15s;white-space:nowrap;font-family:inherit}
+.fpill.active{background:rgba(0,201,177,0.15);border-color:var(--teal);color:var(--teal)}
 
 /* ── MAP CONTROLS ── */
-#map-controls{
-  position:fixed;top:calc(var(--safe-top) + 60px);right:12px;z-index:10;
-  display:flex;flex-direction:column;gap:8px;
-}
-.map-btn{
-  width:40px;height:40px;border-radius:10px;border:none;cursor:pointer;
-  background:rgba(10,22,40,0.9);backdrop-filter:blur(8px);
-  border:1px solid rgba(0,201,177,0.2);
-  color:var(--text);font-size:1.1rem;
-  display:flex;align-items:center;justify-content:center;
-  transition:background .15s,border-color .15s;
-}
-.map-btn:active{background:rgba(0,201,177,0.15)}
-.map-btn.active{background:rgba(0,201,177,0.2);border-color:var(--teal);color:var(--teal)}
+#map-controls{position:fixed;top:calc(var(--safe-top)+60px);right:12px;z-index:10;display:flex;flex-direction:column;gap:8px}
+.map-btn{width:40px;height:40px;border-radius:10px;border:1px solid rgba(0,201,177,0.2);cursor:pointer;
+  background:rgba(10,22,40,0.9);backdrop-filter:blur(8px);color:var(--text);font-size:1.1rem;
+  display:flex;align-items:center;justify-content:center;transition:all .15s}
+.map-btn:active,.map-btn.active{background:rgba(0,201,177,0.2);border-color:var(--teal);color:var(--teal)}
+.map-btn.fishing-on{background:rgba(255,34,68,0.2);border-color:var(--red);color:var(--red)}
 
-/* ── BOTTOM NAV ── */
-#bottom-nav{
-  position:fixed;bottom:0;left:0;right:0;z-index:10;
-  padding:8px 0 calc(var(--safe-bottom) + 8px);
-  background:rgba(10,22,40,0.95);backdrop-filter:blur(12px);
-  border-top:1px solid rgba(0,201,177,0.12);
-  display:flex;justify-content:space-around;align-items:center;
-}
-.nav-item{
-  display:flex;flex-direction:column;align-items:center;gap:3px;
-  font-size:0.62rem;color:var(--gray);cursor:pointer;
-  padding:4px 20px;transition:color .15s;
-}
-.nav-item.active{color:var(--teal)}
-.nav-item .ni-icon{font-size:1.3rem}
+/* ── TIDE CARD ── */
+#tide-card{position:fixed;bottom:calc(var(--safe-bottom)+76px);left:12px;z-index:10;
+  background:rgba(10,22,40,0.9);backdrop-filter:blur(10px);border:1px solid rgba(0,201,177,0.2);
+  border-radius:12px;padding:8px 12px;min-width:130px;cursor:pointer}
+.tc-row{display:flex;align-items:center;gap:6px;margin-bottom:2px}
+.tc-moon{font-size:0.72rem;color:var(--white)}
+.tc-type{font-size:0.62rem;background:rgba(0,201,177,0.15);color:var(--teal);padding:1px 6px;border-radius:8px}
+.tc-current{font-size:0.72rem;color:var(--teal);font-weight:700}
+.tc-times{font-size:0.6rem;color:var(--gray);margin-top:2px}
 
 /* ── FAB ── */
-#fab{
-  position:fixed;
-  bottom:calc(var(--safe-bottom) + 72px);
-  left:50%;transform:translateX(-50%);
-  z-index:11;
-  width:60px;height:60px;border-radius:50%;border:none;cursor:pointer;
-  background:var(--teal);
-  box-shadow:0 4px 20px rgba(0,201,177,0.5);
-  font-size:1.6rem;color:var(--navy);
-  display:flex;align-items:center;justify-content:center;
-  transition:transform .15s,box-shadow .15s;
-}
+#fab{position:fixed;bottom:calc(var(--safe-bottom)+72px);left:50%;transform:translateX(-50%);z-index:11;
+  width:60px;height:60px;border-radius:50%;border:none;cursor:pointer;background:var(--teal);
+  box-shadow:0 4px 20px rgba(0,201,177,0.5);font-size:1.6rem;color:var(--navy);
+  display:flex;align-items:center;justify-content:center;transition:transform .15s}
 #fab:active{transform:translateX(-50%) scale(0.92)}
 
-/* ── SLIDE-UP SHEET (Post Form) ── */
-#sheet-overlay{
-  position:fixed;inset:0;z-index:20;
-  background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);
-  opacity:0;pointer-events:none;transition:opacity .3s;
-}
+/* ── BOTTOM NAV ── */
+#bottom-nav{position:fixed;bottom:0;left:0;right:0;z-index:10;padding:8px 0 calc(var(--safe-bottom)+8px);
+  background:rgba(10,22,40,0.96);backdrop-filter:blur(12px);border-top:1px solid rgba(0,201,177,0.12);
+  display:flex;justify-content:space-around;align-items:center}
+.nav-item{display:flex;flex-direction:column;align-items:center;gap:2px;font-size:0.58rem;color:var(--gray);cursor:pointer;padding:4px 12px;transition:color .15s}
+.nav-item.active{color:var(--teal)}
+.nav-item .ni-icon{font-size:1.25rem}
+
+/* ── OVERLAY + SHEETS ── */
+#sheet-overlay{position:fixed;inset:0;z-index:20;background:rgba(0,0,0,0.65);backdrop-filter:blur(4px);opacity:0;pointer-events:none;transition:opacity .3s}
 #sheet-overlay.open{opacity:1;pointer-events:auto}
-#sheet{
-  position:fixed;bottom:0;left:0;right:0;z-index:21;
-  background:var(--navy2);
-  border-top-left-radius:20px;border-top-right-radius:20px;
-  border-top:1px solid rgba(0,201,177,0.2);
-  padding:0 16px calc(var(--safe-bottom) + 16px);
-  transform:translateY(100%);transition:transform .35s cubic-bezier(.32,.72,0,1);
-  max-height:92vh;overflow-y:auto;
-}
-#sheet.open{transform:translateY(0)}
+.slide-sheet{position:fixed;bottom:0;left:0;right:0;z-index:21;background:var(--navy2);
+  border-top-left-radius:20px;border-top-right-radius:20px;border-top:1px solid rgba(0,201,177,0.2);
+  padding:0 16px calc(var(--safe-bottom)+16px);transform:translateY(100%);
+  transition:transform .35s cubic-bezier(.32,.72,0,1);max-height:92vh;overflow-y:auto}
+.slide-sheet.open{transform:translateY(0)}
 .sheet-handle{width:36px;height:4px;background:rgba(255,255,255,0.2);border-radius:2px;margin:12px auto 16px}
 .sheet-title{font-size:1.05rem;font-weight:700;color:var(--white);margin-bottom:20px;text-align:center}
 
-/* form elements */
-.form-group{margin-bottom:16px}
+/* ── AUTH OVERLAY ── */
+#auth-overlay{position:fixed;inset:0;z-index:100;background:var(--navy);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;transition:opacity .3s}
+#auth-overlay.hidden{opacity:0;pointer-events:none}
+.auth-logo{font-size:2rem;font-weight:900;color:var(--teal);margin-bottom:6px}
+.auth-logo span{color:var(--amber)}
+.auth-sub{font-size:0.8rem;color:var(--gray);margin-bottom:32px}
+.auth-tabs{display:flex;gap:0;margin-bottom:24px;border:1px solid rgba(0,201,177,0.2);border-radius:10px;overflow:hidden;width:100%;max-width:320px}
+.auth-tab{flex:1;padding:10px;border:none;cursor:pointer;font-size:0.85rem;font-weight:600;background:transparent;color:var(--gray);font-family:inherit;transition:all .15s}
+.auth-tab.active{background:rgba(0,201,177,0.15);color:var(--teal)}
+.auth-form{display:flex;flex-direction:column;gap:12px;width:100%;max-width:320px}
+.auth-form input{width:100%;background:rgba(255,255,255,0.06);border:1px solid rgba(0,201,177,0.2);border-radius:10px;padding:12px 14px;color:var(--white);font-size:0.9rem;font-family:inherit;outline:none}
+.auth-form input:focus{border-color:var(--teal)}
+.auth-submit{width:100%;padding:13px;border-radius:10px;border:none;background:var(--teal);color:var(--navy);font-size:0.95rem;font-weight:700;cursor:pointer;font-family:inherit}
+.auth-err{font-size:0.78rem;color:#ff6b6b;text-align:center;min-height:18px}
+
+/* ── FORM ELEMENTS ── */
+.form-group{margin-bottom:14px}
 .form-label{font-size:0.78rem;color:var(--gray);margin-bottom:6px;display:block}
 .form-label span{color:var(--teal)}
 .fish-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
-.fish-chip{
-  padding:8px 4px;border-radius:8px;border:1px solid rgba(0,201,177,0.15);
-  background:rgba(10,22,40,0.8);text-align:center;cursor:pointer;
-  transition:background .15s,border-color .15s;
-}
+.fish-chip{padding:8px 4px;border-radius:8px;border:1px solid rgba(0,201,177,0.15);background:rgba(10,22,40,0.8);text-align:center;cursor:pointer;transition:all .15s}
 .fish-chip .fc-emoji{font-size:1.4rem;display:block}
-.fish-chip .fc-name{font-size:0.58rem;color:var(--gray);margin-top:2px}
+.fish-chip .fc-name{font-size:0.56rem;color:var(--gray);margin-top:2px}
 .fish-chip.selected{background:rgba(0,201,177,0.15);border-color:var(--teal)}
 .fish-chip.selected .fc-name{color:var(--teal)}
-
-input[type=number],input[type=text],textarea{
-  width:100%;background:rgba(10,22,40,0.8);border:1px solid rgba(0,201,177,0.2);
-  border-radius:8px;padding:10px 12px;color:var(--white);font-size:0.9rem;
-  font-family:inherit;outline:none;
-}
+input[type=number],input[type=text],textarea{width:100%;background:rgba(10,22,40,0.8);border:1px solid rgba(0,201,177,0.2);border-radius:8px;padding:10px 12px;color:var(--white);font-size:0.9rem;font-family:inherit;outline:none}
 input[type=number]:focus,input[type=text]:focus,textarea:focus{border-color:var(--teal)}
 textarea{resize:none;height:70px}
 input[type=number]{-moz-appearance:textfield}
 input[type=number]::-webkit-inner-spin-button{display:none}
-
-/* privacy selector */
 .privacy-sel{display:flex;gap:6px}
-.prv-btn{
-  flex:1;padding:9px 4px;border-radius:8px;border:1px solid rgba(0,201,177,0.15);
-  background:rgba(10,22,40,0.8);text-align:center;cursor:pointer;
-  font-size:0.7rem;color:var(--gray);transition:all .15s;
-  display:flex;flex-direction:column;align-items:center;gap:3px;
-}
+.prv-btn{flex:1;padding:9px 4px;border-radius:8px;border:1px solid rgba(0,201,177,0.15);background:rgba(10,22,40,0.8);text-align:center;cursor:pointer;font-size:0.7rem;color:var(--gray);transition:all .15s;display:flex;flex-direction:column;align-items:center;gap:3px}
 .prv-btn .prv-icon{font-size:1.2rem}
 .prv-btn.selected{border-color:var(--teal);background:rgba(0,201,177,0.12);color:var(--white)}
 .prv-btn.selected.amber{border-color:var(--amber);background:rgba(245,166,35,0.12)}
-
-/* photo upload */
-.photo-label{
-  display:flex;align-items:center;justify-content:center;gap:8px;
-  border:1.5px dashed rgba(0,201,177,0.25);border-radius:10px;
-  padding:16px;cursor:pointer;color:var(--gray);font-size:0.85rem;
-  transition:border-color .15s,background .15s;
-}
-.photo-label:active{background:rgba(0,201,177,0.05)}
+.photo-label{display:flex;align-items:center;justify-content:center;gap:8px;border:1.5px dashed rgba(0,201,177,0.25);border-radius:10px;padding:16px;cursor:pointer;color:var(--gray);font-size:0.85rem}
 #photo-preview{width:100%;border-radius:10px;margin-top:8px;display:none;max-height:200px;object-fit:cover}
 input[type=file]{display:none}
-
-/* loc row */
-.loc-row{
-  display:flex;align-items:center;justify-content:space-between;
-  background:rgba(10,22,40,0.7);border:1px solid rgba(0,201,177,0.15);
-  border-radius:8px;padding:10px 12px;
-}
+.loc-row{display:flex;align-items:center;justify-content:space-between;background:rgba(10,22,40,0.7);border:1px solid rgba(0,201,177,0.15);border-radius:8px;padding:10px 12px}
 .loc-text{font-size:0.78rem;color:var(--gray)}
 .loc-text strong{color:var(--teal);display:block;font-size:0.85rem}
-.loc-btn{
-  padding:6px 12px;border-radius:6px;border:none;
-  background:rgba(0,201,177,0.15);color:var(--teal);font-size:0.75rem;cursor:pointer;
-}
-
-/* submit */
-#submit-btn{
-  width:100%;padding:14px;border-radius:12px;border:none;cursor:pointer;
-  background:var(--teal);color:var(--navy);font-size:1rem;font-weight:700;
-  margin-top:8px;transition:opacity .15s;
-}
+.loc-btn{padding:6px 12px;border-radius:6px;border:none;background:rgba(0,201,177,0.15);color:var(--teal);font-size:0.75rem;cursor:pointer}
+#submit-btn{width:100%;padding:14px;border-radius:12px;border:none;cursor:pointer;background:var(--teal);color:var(--navy);font-size:1rem;font-weight:700;margin-top:8px;transition:opacity .15s}
 #submit-btn:active{opacity:.85}
 #submit-btn:disabled{opacity:.4;cursor:default}
 
-/* ── PIN POPUP ── */
+/* ── AI SHEET ── */
+.ai-score{font-size:1.6rem;text-align:center;margin-bottom:4px}
+.ai-date{font-size:0.72rem;color:var(--gray);text-align:center;margin-bottom:16px}
+.ai-section{background:rgba(10,22,40,0.6);border:1px solid rgba(0,201,177,0.12);border-radius:10px;padding:12px;margin-bottom:10px}
+.ai-section-title{font-size:0.7rem;color:var(--gray);margin-bottom:6px}
+.ai-section-body{font-size:0.85rem;color:var(--white);line-height:1.5}
+.ai-target-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.06)}
+.ai-target-row:last-child{border-bottom:none}
+.ai-fish-name{font-size:0.85rem;font-weight:700;color:var(--white)}
+.ai-fish-spot{font-size:0.7rem;color:var(--teal)}
+
+/* ── SOCIAL SHEET ── */
+.social-tabs{display:flex;margin-bottom:16px;border:1px solid rgba(0,201,177,0.15);border-radius:10px;overflow:hidden}
+.stab{flex:1;padding:9px;border:none;cursor:pointer;font-size:0.75rem;font-weight:600;background:transparent;color:var(--gray);font-family:inherit;transition:all .15s}
+.stab.active{background:rgba(0,201,177,0.15);color:var(--teal)}
+.partner-card{background:rgba(10,22,40,0.6);border:1px solid rgba(0,201,177,0.12);border-radius:10px;padding:12px;margin-bottom:10px;display:flex;align-items:center;gap:12px}
+.partner-avatar{width:44px;height:44px;border-radius:50%;background:rgba(0,201,177,0.15);border:2px solid rgba(0,201,177,0.3);display:flex;align-items:center;justify-content:center;font-size:1.3rem;overflow:hidden;flex-shrink:0}
+.partner-avatar img{width:100%;height:100%;object-fit:cover}
+.partner-info{flex:1}
+.partner-name{font-size:0.9rem;font-weight:700;color:var(--white)}
+.partner-dist{font-size:0.7rem;color:var(--teal)}
+.partner-rank{font-size:0.65rem;color:var(--gray)}
+.partner-actions{display:flex;gap:6px;margin-top:8px}
+.partner-btn{padding:5px 12px;border-radius:6px;border:none;cursor:pointer;font-size:0.72rem;font-weight:600;font-family:inherit}
+.pb-match{background:rgba(0,201,177,0.2);color:var(--teal)}
+.pb-msg{background:rgba(255,255,255,0.08);color:var(--gray)}
+.friend-card{background:rgba(10,22,40,0.6);border:1px solid rgba(0,201,177,0.12);border-radius:10px;padding:10px 12px;margin-bottom:8px;display:flex;align-items:center;gap:10px}
+.fishing-badge{width:8px;height:8px;border-radius:50%;background:var(--red);box-shadow:0 0 6px 2px rgba(255,34,68,0.5);flex-shrink:0}
+.fishing-badge.offline{background:var(--gray);box-shadow:none}
+.accept-btn{padding:4px 10px;border-radius:6px;border:none;cursor:pointer;font-size:0.7rem;background:rgba(0,201,177,0.2);color:var(--teal);font-family:inherit}
+.rank-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.05)}
+.rank-row:last-child{border-bottom:none}
+.rank-num{font-size:0.75rem;color:var(--gray);width:22px;text-align:right;flex-shrink:0}
+.rank-pts{font-size:0.78rem;color:var(--amber);font-weight:700;margin-left:auto}
+
+/* ── ROOM SHEET ── */
+#room-map{width:100%;height:200px;border-radius:10px;margin-bottom:12px;z-index:0;position:relative}
+.room-info{background:rgba(10,22,40,0.6);border:1px solid rgba(0,201,177,0.12);border-radius:10px;padding:12px;margin-bottom:10px}
+.room-partner{font-size:0.9rem;font-weight:700;color:var(--white);margin-bottom:4px}
+.room-status{font-size:0.72rem;color:var(--teal)}
+.room-btn{width:100%;padding:11px;border-radius:10px;border:none;cursor:pointer;font-size:0.85rem;font-weight:700;font-family:inherit;margin-top:8px;background:rgba(0,201,177,0.2);color:var(--teal)}
+
+/* ── PROFILE SHEET ── */
+.profile-avatar-wrap{display:flex;justify-content:center;margin-bottom:16px}
+.profile-avatar{width:72px;height:72px;border-radius:50%;background:rgba(0,201,177,0.15);border:3px solid var(--teal);display:flex;align-items:center;justify-content:center;font-size:2rem;overflow:hidden;cursor:pointer}
+.profile-avatar img{width:100%;height:100%;object-fit:cover}
+.rank-badge{display:inline-flex;align-items:center;gap:6px;background:rgba(245,166,35,0.15);border:1px solid var(--amber);border-radius:20px;padding:4px 12px;font-size:0.78rem;color:var(--amber);margin-bottom:16px}
+
+/* ── TACKLE NAME TOOLTIP ── */
+.tackle-label.leaflet-tooltip{background:rgba(10,22,40,0.92)!important;border:1px solid rgba(0,201,177,0.3)!important;color:#c8dff0!important;font-size:0.68rem!important;padding:2px 7px!important;border-radius:4px!important;white-space:nowrap!important;box-shadow:none!important}
+.tackle-label.leaflet-tooltip::before{display:none!important}
+
+/* ── POPUP ── */
+.leaflet-popup-content-wrapper{background:#0d1e38;border:1px solid rgba(0,201,177,0.2);border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,0.7)}
+.leaflet-popup-tip-container{display:none}
+.leaflet-popup-content{margin:12px 14px}
 .pin-popup{min-width:180px;max-width:240px}
 .pp-fish{display:flex;align-items:center;gap:6px;margin-bottom:8px}
 .pp-emoji{font-size:1.4rem}
-.pp-name{font-size:0.9rem;font-weight:700;color:#0a1628}
-.pp-size{font-size:0.75rem;color:#444}
-.pp-meta{font-size:0.72rem;color:#666;margin-bottom:6px;line-height:1.5}
-.pp-prv{
-  display:inline-block;font-size:0.62rem;padding:2px 8px;border-radius:4px;
-  margin-bottom:10px;
-}
-.pp-prv.exact{background:#e8f9f7;color:#00a896}
-.pp-prv.area{background:#fff8e8;color:#e8940f}
-.pp-prv.private{background:#f5e8ff;color:#9b59b6}
+.pp-name{font-size:0.9rem;font-weight:700;color:var(--white)}
+.pp-size{font-size:0.75rem;color:var(--gray)}
+.pp-meta{font-size:0.72rem;color:var(--gray);margin-bottom:6px;line-height:1.6}
+.pp-prv{display:inline-block;font-size:0.62rem;padding:2px 8px;border-radius:4px;margin-bottom:10px}
+.pp-prv.exact{background:rgba(0,201,177,0.15);color:var(--teal)}
+.pp-prv.area{background:rgba(245,166,35,0.15);color:var(--amber)}
 .pp-photo{width:100%;border-radius:6px;margin-bottom:10px;max-height:140px;object-fit:cover}
 .pp-nav{display:flex;gap:6px}
-.pp-nav a{
-  flex:1;display:flex;align-items:center;justify-content:center;gap:4px;
-  padding:7px;border-radius:6px;text-decoration:none;font-size:0.7rem;font-weight:700;
+.pp-nav a{flex:1;display:flex;align-items:center;justify-content:center;gap:4px;padding:7px;border-radius:6px;text-decoration:none;font-size:0.7rem;font-weight:700}
+.pp-nav .g-btn{background:rgba(26,115,232,0.2);color:#4f9eff}
+.pp-nav .a-btn{background:rgba(255,255,255,0.08);color:var(--gray)}
+
+/* ── GLOWING DOTS (boats / fishing users) ── */
+@keyframes glow-pulse{
+  0%,100%{box-shadow:0 0 6px 3px rgba(255,34,68,0.6),0 0 14px 6px rgba(255,34,68,0.3)}
+  50%{box-shadow:0 0 10px 5px rgba(255,34,68,0.9),0 0 24px 10px rgba(255,34,68,0.5)}
 }
-.pp-nav .g-btn{background:#e8f0fe;color:#1a73e8}
-.pp-nav .a-btn{background:#f5f5f5;color:#333}
+.glow-dot{width:12px;height:12px;border-radius:50%;background:var(--red);animation:glow-pulse 1.5s ease-in-out infinite;cursor:pointer}
 
 /* ── TOAST ── */
-#toast{
-  position:fixed;bottom:calc(var(--safe-bottom) + 90px);
-  left:50%;transform:translateX(-50%) translateY(20px);
-  z-index:50;
-  background:rgba(0,201,177,0.95);color:var(--navy);
-  padding:10px 20px;border-radius:12px;font-size:0.85rem;font-weight:700;
-  opacity:0;transition:opacity .3s,transform .3s;pointer-events:none;
-  white-space:nowrap;
-}
+#toast{position:fixed;bottom:calc(var(--safe-bottom)+90px);left:50%;transform:translateX(-50%) translateY(20px);
+  z-index:50;background:rgba(0,201,177,0.95);color:var(--navy);padding:10px 20px;border-radius:12px;
+  font-size:0.85rem;font-weight:700;opacity:0;transition:opacity .3s,transform .3s;pointer-events:none;white-space:nowrap}
 #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 #toast.error{background:rgba(220,50,50,0.95);color:#fff}
 
-/* ── LOCATION TARGET ── */
-#my-loc-btn{
-  position:fixed;bottom:calc(var(--safe-bottom) + 72px);right:12px;z-index:10;
-  width:40px;height:40px;border-radius:10px;border:1px solid rgba(0,201,177,0.2);
-  background:rgba(10,22,40,0.9);backdrop-filter:blur(8px);
-  color:var(--teal);font-size:1.2rem;
-  display:flex;align-items:center;justify-content:center;cursor:pointer;
-}
-#my-loc-btn:active{background:rgba(0,201,177,0.15)}
-
-/* ── LOADING OVERLAY ── */
-#loading{
-  position:fixed;inset:0;z-index:100;
-  background:var(--navy);display:flex;flex-direction:column;
-  align-items:center;justify-content:center;gap:16px;
-  transition:opacity .4s;
-}
+/* ── LOADING ── */
+#loading{position:fixed;inset:0;z-index:99;background:var(--navy);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;transition:opacity .4s}
 #loading.hidden{opacity:0;pointer-events:none}
-.loader{
-  width:40px;height:40px;border-radius:50%;
-  border:3px solid rgba(0,201,177,0.2);
-  border-top-color:var(--teal);
-  animation:spin 0.9s linear infinite;
-}
+.loader{width:40px;height:40px;border-radius:50%;border:3px solid rgba(0,201,177,0.2);border-top-color:var(--teal);animation:spin 0.9s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 .loader-text{font-size:0.85rem;color:var(--gray)}
-
-/* ── MODE PILLS ── */
-#mode-bar{
-  position:fixed;top:calc(var(--safe-top) + 56px);left:0;right:0;z-index:9;
-  display:flex;gap:6px;padding:0 12px;overflow-x:auto;scrollbar-width:none;
-  pointer-events:none;
-}
-#mode-bar::-webkit-scrollbar{display:none}
-.mode-pill{
-  flex-shrink:0;padding:5px 12px;border-radius:16px;
-  background:rgba(10,22,40,0.88);backdrop-filter:blur(8px);
-  border:1px solid rgba(0,201,177,0.2);
-  font-size:0.72rem;color:var(--gray);cursor:pointer;pointer-events:auto;
-  transition:all .15s;white-space:nowrap;
-}
-.mode-pill.active{background:rgba(0,201,177,0.18);border-color:var(--teal);color:var(--teal)}
-
-/* leaflet dark popup */
-.leaflet-popup-content-wrapper{background:#0d2236;border:1px solid rgba(0,201,177,0.25);border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,0.6)}
-.leaflet-popup-tip-container{display:none}
-.leaflet-popup-content{margin:12px 14px}
 </style>
 </head>
 <body>
 
 <!-- Loading -->
-<div id="loading">
-  <div class="loader"></div>
-  <div class="loader-text">マップを読み込み中...</div>
+<div id="loading"><div class="loader"></div><div class="loader-text">現在地を取得中...</div></div>
+
+<!-- Auth overlay -->
+<div id="auth-overlay">
+  <div class="auth-logo">ANGLER'S<span>MAP</span></div>
+  <div class="auth-sub">釣果記録・釣りともマッチング</div>
+  <div class="auth-tabs">
+    <button class="auth-tab active" id="tab-login">ログイン</button>
+    <button class="auth-tab" id="tab-register">新規登録</button>
+  </div>
+  <form id="login-form" class="auth-form">
+    <input type="email" id="login-email" placeholder="メールアドレス" required>
+    <input type="password" id="login-pw" placeholder="パスワード" required>
+    <div class="auth-err" id="login-err"></div>
+    <button type="submit" class="auth-submit">ログイン</button>
+  </form>
+  <form id="register-form" class="auth-form" style="display:none">
+    <input type="text" id="reg-name" placeholder="ユーザー名" required>
+    <input type="email" id="reg-email" placeholder="メールアドレス" required>
+    <input type="password" id="reg-pw" placeholder="パスワード（6文字以上）" required>
+    <div class="auth-err" id="reg-err"></div>
+    <button type="submit" class="auth-submit">登録する</button>
+  </form>
 </div>
 
 <!-- Map -->
@@ -282,8 +277,9 @@ input[type=file]{display:none}
 <!-- Header -->
 <header id="header">
   <a class="logo" href="/">ANGLER'S<span>MAP</span></a>
-  <div id="stats-bar">
+  <div id="header-right">
     <span class="stat-pill" id="total-pill">🎣 0釣果</span>
+    <button id="profile-btn" title="プロフィール">👤</button>
   </div>
 </header>
 
@@ -292,12 +288,35 @@ input[type=file]{display:none}
   <div class="mode-pill active" data-mode="catches">📍 釣果</div>
   <div class="mode-pill" data-mode="heatmap">🌡 ヒートマップ</div>
   <div class="mode-pill" data-mode="tackle">🎣 釣具店</div>
-  <div class="mode-pill" data-mode="boats">⚓ 遊漁船</div>
+  <div class="mode-pill" data-mode="boats">⛵ 遊漁船</div>
+  <div class="mode-pill" data-mode="anglers">🎣 釣行中</div>
+</div>
+
+<!-- Filter bar -->
+<div id="filter-bar">
+  <div class="filter-row" id="period-row">
+    <button class="fpill active" data-period="all">全期間</button>
+    <button class="fpill" data-period="1m">月間</button>
+    <button class="fpill" data-period="3m">3ヶ月</button>
+    <button class="fpill" data-period="1y">1年</button>
+  </div>
+  <div class="filter-row" id="species-row">
+    <button class="fpill active" data-species="">全魚種</button>
+  </div>
 </div>
 
 <!-- Map controls -->
 <div id="map-controls">
   <button class="map-btn" id="my-loc-btn" title="現在地">📍</button>
+  <button class="map-btn" id="fishing-btn" title="釣行中ON/OFF">🎣</button>
+  <button class="map-btn" id="ai-btn" title="AI釣りポイント提案">🤖</button>
+</div>
+
+<!-- Tide card -->
+<div id="tide-card">
+  <div class="tc-row"><span class="tc-moon" id="tc-moon">🌕 満月</span><span class="tc-type" id="tc-type">大潮</span></div>
+  <div class="tc-current" id="tc-current">⬆ 上げ潮</div>
+  <div class="tc-times" id="tc-times">満潮 --:-- · 干潮 --:--</div>
 </div>
 
 <!-- FAB -->
@@ -307,407 +326,731 @@ input[type=file]{display:none}
 <nav id="bottom-nav">
   <div class="nav-item active" data-tab="map"><span class="ni-icon">🗺</span>マップ</div>
   <div class="nav-item" data-tab="post"><span class="ni-icon">📷</span>投稿</div>
-  <div class="nav-item" data-tab="records"><span class="ni-icon">📋</span>記録</div>
+  <div class="nav-item" data-tab="social"><span class="ni-icon">👥</span>Social</div>
+  <div class="nav-item" data-tab="ai"><span class="ni-icon">🤖</span>AI予測</div>
 </nav>
 
-<!-- Sheet overlay -->
 <div id="sheet-overlay"></div>
 
 <!-- Post sheet -->
-<div id="sheet">
+<div id="sheet" class="slide-sheet">
   <div class="sheet-handle"></div>
   <div class="sheet-title">🐟 釣果を投稿</div>
-
   <form id="post-form" enctype="multipart/form-data">
-    <!-- 魚種 -->
     <div class="form-group">
       <label class="form-label">魚種 <span>*</span></label>
       <div class="fish-grid" id="fish-grid"></div>
       <input type="hidden" id="sel-species" name="fish_species" required>
-      <input type="hidden" id="sel-emoji"   name="fish_emoji">
+      <input type="hidden" id="sel-emoji" name="fish_emoji">
     </div>
-
-    <!-- サイズ -->
     <div class="form-group" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-      <div>
-        <label class="form-label">サイズ (cm)</label>
-        <input type="number" name="size_cm" placeholder="例: 45" min="1" max="300">
-      </div>
-      <div>
-        <label class="form-label">重さ (g)</label>
-        <input type="number" name="weight_g" placeholder="例: 1200" min="1">
-      </div>
+      <div><label class="form-label">サイズ (cm)</label><input type="number" name="size_cm" placeholder="例: 45" min="1" max="300"></div>
+      <div><label class="form-label">重さ (g)</label><input type="number" name="weight_g" placeholder="例: 1200" min="1"></div>
     </div>
-
-    <!-- ルアー -->
-    <div class="form-group">
-      <label class="form-label">使用ルアー / エサ</label>
-      <input type="text" name="lure_name" placeholder="例: IMAコモモ125F チャートバックパール">
-    </div>
-
-    <!-- メモ -->
-    <div class="form-group">
-      <label class="form-label">メモ</label>
-      <textarea name="memo" placeholder="状況・ヒットパターンなど自由に"></textarea>
-    </div>
-
-    <!-- 写真 -->
+    <div class="form-group"><label class="form-label">使用ルアー / エサ</label><input type="text" name="lure_name" placeholder="例: IMAコモモ125F"></div>
+    <div class="form-group"><label class="form-label">メモ</label><textarea name="memo" placeholder="状況・ヒットパターンなど"></textarea></div>
     <div class="form-group">
       <label class="form-label">写真</label>
-      <label class="photo-label" for="photo-input">
-        <span>📷</span><span>タップして写真を追加</span>
-      </label>
+      <label class="photo-label" for="photo-input"><span>📷</span><span>タップして写真を追加</span></label>
       <input type="file" id="photo-input" name="photo" accept="image/*" capture="environment">
       <img id="photo-preview" alt="preview">
     </div>
-
-    <!-- 場所公開設定 -->
     <div class="form-group">
       <label class="form-label">場所の公開設定</label>
       <div class="privacy-sel">
-        <button type="button" class="prv-btn" data-prv="exact">
-          <span class="prv-icon">📍</span>正確公開
-        </button>
-        <button type="button" class="prv-btn selected" data-prv="area">
-          <span class="prv-icon">🌀</span>エリア公開
-        </button>
-        <button type="button" class="prv-btn amber" data-prv="private">
-          <span class="prv-icon">🔐</span>非公開
-        </button>
+        <button type="button" class="prv-btn" data-prv="exact"><span class="prv-icon">📍</span>正確公開</button>
+        <button type="button" class="prv-btn selected" data-prv="area"><span class="prv-icon">🌀</span>エリア公開</button>
+        <button type="button" class="prv-btn amber" data-prv="private"><span class="prv-icon">🔐</span>非公開</button>
       </div>
       <input type="hidden" id="sel-privacy" name="privacy" value="area">
     </div>
-
-    <!-- 位置 -->
     <div class="form-group">
       <label class="form-label">釣り場の位置</label>
       <div class="loc-row">
-        <div class="loc-text">
-          <strong id="loc-display">現在地を取得中...</strong>
-          <span id="loc-sub">マップをタップして手動で変更できます</span>
-        </div>
+        <div class="loc-text"><strong id="loc-display">現在地を取得中...</strong><span>マップをタップして手動で変更</span></div>
         <button type="button" class="loc-btn" id="use-current-loc">現在地</button>
       </div>
       <input type="hidden" id="post-lat" name="lat">
       <input type="hidden" id="post-lng" name="lng">
     </div>
-
     <button type="submit" id="submit-btn" disabled>投稿する</button>
   </form>
 </div>
 
-<!-- Toast -->
+<!-- AI sheet -->
+<div id="ai-sheet" class="slide-sheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-title">🤖 今日のAI釣りポイント提案</div>
+  <div id="ai-content"><div class="loader" style="margin:40px auto"></div></div>
+</div>
+
+<!-- Social sheet -->
+<div id="social-sheet" class="slide-sheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-title">👥 Social</div>
+  <div class="social-tabs">
+    <button class="stab active" data-stab="partners">近くの釣り人</button>
+    <button class="stab" data-stab="friends">フレンド</button>
+    <button class="stab" data-stab="rank">ランキング</button>
+  </div>
+  <div id="social-content"><div class="loader" style="margin:40px auto"></div></div>
+</div>
+
+<!-- Profile sheet -->
+<div id="profile-sheet" class="slide-sheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-title">👤 プロフィール</div>
+  <div class="profile-avatar-wrap">
+    <div class="profile-avatar" id="profile-avatar-btn">
+      <span id="profile-avatar-icon">👤</span>
+      <img id="profile-avatar-img" style="display:none">
+    </div>
+  </div>
+  <input type="file" id="avatar-file-input" accept="image/*" style="display:none">
+  <div style="text-align:center;margin-bottom:16px">
+    <div class="rank-badge">🏆 <span id="profile-rank-pts">1000</span> pts</div>
+  </div>
+  <div class="form-group"><label class="form-label">ユーザー名</label><input type="text" id="profile-username" placeholder="ユーザー名"></div>
+  <div class="form-group"><label class="form-label">自己紹介</label><textarea id="profile-bio" placeholder="好きな釣りスタイルなど"></textarea></div>
+  <div class="form-group"><label class="form-label">インスタID</label><input type="text" id="profile-instagram" placeholder="@username"></div>
+  <button id="profile-save-btn" style="width:100%;padding:13px;border-radius:12px;border:none;cursor:pointer;background:var(--teal);color:var(--navy);font-size:0.95rem;font-weight:700;font-family:inherit">保存する</button>
+  <button id="profile-logout-btn" style="width:100%;padding:11px;border-radius:12px;border:1px solid rgba(255,80,80,0.3);cursor:pointer;background:transparent;color:#ff6b6b;font-size:0.85rem;font-family:inherit;margin-top:10px">ログアウト</button>
+</div>
+
+<!-- Room sheet -->
+<div id="room-sheet" class="slide-sheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-title" id="room-title">🎣 釣りともルーム</div>
+  <div id="room-map"></div>
+  <div class="room-info" id="room-partner-info">パートナー情報を読み込み中...</div>
+  <button class="room-btn" id="room-pin-btn">📍 集合場所をピン留めする</button>
+  <button class="room-btn" id="room-rank-btn" style="background:rgba(245,166,35,0.15);color:var(--amber);margin-top:6px">🏆 釣果バトルを申請する</button>
+</div>
+
 <div id="toast"></div>
 
 <script>
-const API = '';  // same origin
-
-// ── State ────────────────────────────────────────────────────
+const API = '';
 let map, myMarker, myLat, myLng, postLat, postLng;
-let catchMarkers = [];
-let currentMode = 'catches';
-let selectedPrivacy = 'area';
-let selectedSpecies = null;
+let catchMarkers=[], tackleMarkers=[], boatMarkers=[], anglerMarkers=[];
+let heatLayer=null;
+let currentMode='catches', currentPeriod='all', filterSpecies='';
+let selectedPrivacy='area', selectedSpeciesForPost=null;
+let fishList=[];
+let currentUser=null, authToken=null;
+let isFishing=false;
+let roomMap=null, roomMarkers=[];
+let currentRoom=null;
 
-// ── Init map ─────────────────────────────────────────────────
-function initMap() {
-  map = L.map('map', {
-    center: [34.7, 135.5],
-    zoom: 11,
-    zoomControl: false,
-    attributionControl: false,
-  });
+// ── Mock boats (expanded) ──────────────────────────────────────
+const MOCK_BOATS=[
+  {name:"第一漁丸",  captain:"田中船長",target:"タチウオ",    price:"¥15,000/人",cap:8,  url:"https://example.com/dai1"},
+  {name:"海鷹丸",   captain:"鈴木船長",target:"シーバス",    price:"¥10,000/人",cap:6,  url:"https://example.com/kaitaka"},
+  {name:"大漁丸",   captain:"佐藤船長",target:"ブリ・マダイ", price:"¥20,000/人",cap:10, url:"https://example.com/tairyo"},
+  {name:"幸運丸",   captain:"山田船長",target:"アジ・サバ",   price:"¥8,000/人", cap:12, url:"https://example.com/kouun"},
+  {name:"海龍丸",   captain:"中村船長",target:"ヒラメ",      price:"¥18,000/人",cap:8,  url:"https://example.com/kairyu"},
+  {name:"黒潮丸",   captain:"伊藤船長",target:"カツオ",      price:"¥22,000/人",cap:10, url:"https://example.com/kuroshio"},
+  {name:"波乗り丸", captain:"渡辺船長",target:"マダコ",      price:"¥7,000/人", cap:8,  url:"https://example.com/naminori"},
+  {name:"飛魚丸",   captain:"小林船長",target:"イカ",        price:"¥12,000/人",cap:6,  url:"https://example.com/tobio"},
+];
 
-  // Dark tile (CartoDB Dark Matter)
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-    maxZoom: 19,
-    subdomains: 'abcd',
+// ── Auth ─────────────────────────────────────────────────────
+function loadAuth(){
+  authToken  = localStorage.getItem('anglers_token');
+  const saved = localStorage.getItem('anglers_user');
+  if(saved) currentUser = JSON.parse(saved);
+}
+
+function saveAuth(token, user){
+  authToken  = token; currentUser = user;
+  localStorage.setItem('anglers_token', token);
+  localStorage.setItem('anglers_user', JSON.stringify(user));
+}
+
+function clearAuth(){
+  authToken=null; currentUser=null;
+  localStorage.removeItem('anglers_token');
+  localStorage.removeItem('anglers_user');
+}
+
+function authHeaders(){
+  return authToken ? {'Authorization':`Bearer ${authToken}`,'Content-Type':'application/json'} : {'Content-Type':'application/json'};
+}
+
+async function validateToken(){
+  if(!authToken) return false;
+  try{
+    const r = await fetch(`${API}/api/auth/me`,{headers:{'Authorization':`Bearer ${authToken}`}});
+    if(!r.ok){ clearAuth(); return false; }
+    currentUser = await r.json();
+    localStorage.setItem('anglers_user', JSON.stringify(currentUser));
+    return true;
+  }catch{ return false; }
+}
+
+function showAuthOverlay(){ document.getElementById('auth-overlay').classList.remove('hidden'); }
+function hideAuthOverlay(){ document.getElementById('auth-overlay').classList.add('hidden'); updateProfileUI(); }
+
+function updateProfileUI(){
+  if(!currentUser) return;
+  const btn = document.getElementById('profile-btn');
+  if(currentUser.avatar_filename){
+    btn.innerHTML=`<img src="/uploads/${currentUser.avatar_filename}" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`;
+  } else {
+    btn.textContent = currentUser.username ? currentUser.username[0].toUpperCase() : '👤';
+  }
+  if(currentUser.is_fishing){ document.getElementById('fishing-btn').classList.add('fishing-on'); isFishing=true; }
+}
+
+// ── Map init ─────────────────────────────────────────────────
+function initMap(){
+  map = L.map('map',{center:[35.68,139.69],zoom:12,zoomControl:false,attributionControl:true});
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{
+    maxZoom:19,subdomains:['a','b','c','d'],
+    attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions">CARTO</a>',
   }).addTo(map);
-
-  // Map click → set post location
-  map.on('click', (e) => {
-    if (document.getElementById('sheet').classList.contains('open')) {
-      setPostLocation(e.latlng.lat, e.latlng.lng, '選択した場所');
-    }
-  });
+  map.on('click',(e)=>{ if(document.getElementById('sheet').classList.contains('open')) setPostLocation(e.latlng.lat,e.latlng.lng,`${e.latlng.lat.toFixed(5)}, ${e.latlng.lng.toFixed(5)}`); });
 }
 
 // ── Geolocation ──────────────────────────────────────────────
-function getMyLocation(callback) {
-  if (!navigator.geolocation) {
-    showToast('位置情報が使えません', 'error');
-    return;
-  }
+function getMyLocation(cb){
+  if(!navigator.geolocation){ myLat=35.68;myLng=139.69;updateMyMarker();if(cb)cb(myLat,myLng);return; }
   navigator.geolocation.getCurrentPosition(
-    pos => {
-      myLat = pos.coords.latitude;
-      myLng = pos.coords.longitude;
-      updateMyMarker();
-      if (callback) callback(myLat, myLng);
-    },
-    err => {
-      console.warn('geolocation error', err);
-      // fallback to Osaka bay
-      myLat = 34.67; myLng = 135.45;
-      updateMyMarker();
-      if (callback) callback(myLat, myLng);
-    },
-    { enableHighAccuracy: true, timeout: 8000 }
+    p=>{ myLat=p.coords.latitude;myLng=p.coords.longitude;updateMyMarker();if(cb)cb(myLat,myLng); },
+    ()=>{ myLat=35.68;myLng=139.69;updateMyMarker();if(cb)cb(myLat,myLng); },
+    {enableHighAccuracy:true,timeout:8000}
   );
 }
 
-function updateMyMarker() {
-  const icon = L.divIcon({
-    className: '',
-    html: `<div style="
-      width:16px;height:16px;border-radius:50%;
-      background:var(--teal);border:3px solid #fff;
-      box-shadow:0 0 0 6px rgba(0,201,177,0.25)"></div>`,
-    iconSize: [16, 16],
-    iconAnchor: [8, 8],
-  });
-  if (myMarker) myMarker.setLatLng([myLat, myLng]);
-  else { myMarker = L.marker([myLat, myLng], { icon, zIndexOffset: 1000 }).addTo(map); }
-  map.setView([myLat, myLng], 14);
+function updateMyMarker(){
+  const icon=L.divIcon({className:'',html:`<div style="width:14px;height:14px;border-radius:50%;background:#00c9b1;border:3px solid #fff;box-shadow:0 0 0 5px rgba(0,201,177,0.3)"></div>`,iconSize:[14,14],iconAnchor:[7,7]});
+  if(myMarker) myMarker.setLatLng([myLat,myLng]);
+  else myMarker=L.marker([myLat,myLng],{icon,zIndexOffset:1000}).addTo(map);
+  map.setView([myLat,myLng],14);
 }
 
-// ── Catch markers ─────────────────────────────────────────────
-const privacyLabel = { exact: '正確公開', area: 'エリア公開', private: '非公開' };
-
-async function loadCatches() {
-  try {
-    const bounds = map.getBounds();
-    const q = `n=${bounds.getNorth()}&s=${bounds.getSouth()}&e=${bounds.getEast()}&w=${bounds.getWest()}`;
-    const res = await fetch(`${API}/api/catches?${q}`);
-    const data = await res.json();
-
-    catchMarkers.forEach(m => map.removeLayer(m));
-    catchMarkers = [];
-
-    data.forEach(c => addCatchPin(c));
-
-    // update total
-    const statsRes = await fetch(`${API}/api/stats`);
-    const stats = await statsRes.json();
-    const total = Object.values(stats).reduce((s, v) => s + v.count, 0);
-    document.getElementById('total-pill').textContent = `🎣 ${total}釣果`;
-  } catch(e) { console.error(e); }
+// ── Clear layers ──────────────────────────────────────────────
+function clearAllLayers(){
+  catchMarkers.forEach(m=>map.removeLayer(m)); catchMarkers=[];
+  tackleMarkers.forEach(m=>map.removeLayer(m)); tackleMarkers=[];
+  boatMarkers.forEach(m=>map.removeLayer(m)); boatMarkers=[];
+  anglerMarkers.forEach(m=>map.removeLayer(m)); anglerMarkers=[];
+  if(heatLayer){map.removeLayer(heatLayer);heatLayer=null;}
 }
 
-function addCatchPin(c) {
-  const icon = L.divIcon({
-    className: '',
-    html: `<div style="
-      font-size:1.6rem;line-height:1;
-      filter:drop-shadow(0 2px 4px rgba(0,0,0,0.8));
-      cursor:pointer">${c.fish_emoji}</div>`,
-    iconSize: [28, 28],
-    iconAnchor: [14, 14],
-    popupAnchor: [0, -16],
+async function refreshMap(){
+  clearAllLayers();
+  if(currentMode==='catches') await loadCatches();
+  else if(currentMode==='heatmap') await renderHeatmap();
+  else if(currentMode==='tackle') await loadTackleShops();
+  else if(currentMode==='boats') renderBoats();
+  else if(currentMode==='anglers') await loadFishingAnglers();
+}
+
+// ── Catches ───────────────────────────────────────────────────
+const privacyLabel={exact:'正確公開',area:'エリア公開',private:'非公開'};
+
+async function loadCatches(){
+  try{
+    const b=map.getBounds();
+    const q=new URLSearchParams({n:b.getNorth(),s:b.getSouth(),e:b.getEast(),w:b.getWest()});
+    if(currentPeriod!=='all') q.set('period',currentPeriod);
+    if(filterSpecies) q.set('species',filterSpecies);
+    const [data,stats]=await Promise.all([
+      fetch(`${API}/api/catches?${q}`).then(r=>r.json()),
+      fetch(`${API}/api/stats`).then(r=>r.json()),
+    ]);
+    catchMarkers.forEach(m=>map.removeLayer(m)); catchMarkers=[];
+    data.forEach(c=>addCatchPin(c));
+    const total=Object.values(stats).reduce((s,v)=>s+v.count,0);
+    document.getElementById('total-pill').textContent=`🎣 ${total}釣果`;
+  }catch(e){console.error(e);}
+}
+
+function addCatchPin(c){
+  const icon=L.divIcon({className:'',html:`<div style="font-size:1.5rem;line-height:1;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.8));cursor:pointer">${c.fish_emoji}</div>`,iconSize:[26,26],iconAnchor:[13,13],popupAnchor:[0,-16]});
+  const m=L.marker([c.lat,c.lng],{icon}).addTo(map);
+  const lH=c.lure_name?`<div>🎣 ${c.lure_name}</div>`:'';
+  const sH=c.size_cm?`<div>📏 ${c.size_cm}cm${c.weight_g?` · ${c.weight_g}g`:''}</div>`:'';
+  const mH=c.memo?`<div>📝 ${c.memo}</div>`:'';
+  const pH=c.photo_filename?`<img class="pp-photo" src="/uploads/${c.photo_filename}" loading="lazy">`:'';
+  const date=new Date(c.caught_at).toLocaleDateString('ja-JP',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+  const gUrl=`https://www.google.com/maps/dir/?api=1&destination=${c.lat},${c.lng}`;
+  const aUrl=`http://maps.apple.com/?daddr=${c.lat},${c.lng}`;
+  m.bindPopup(`<div class="pin-popup"><div class="pp-fish"><span class="pp-emoji">${c.fish_emoji}</span><div><div class="pp-name">${c.fish_species}</div>${c.size_cm?`<div class="pp-size">${c.size_cm}cm</div>`:''}</div></div><span class="pp-prv ${c.privacy}">${privacyLabel[c.privacy]}</span>${pH}<div class="pp-meta">${sH}${lH}${mH}<div>🕐 ${date}</div></div><div class="pp-nav"><a href="${gUrl}" target="_blank" class="g-btn">🗺 Googleマップ</a><a href="${aUrl}" target="_blank" class="a-btn">🍎 Appleマップ</a></div></div>`,{maxWidth:260});
+  catchMarkers.push(m);
+}
+
+// ── Heatmap ───────────────────────────────────────────────────
+async function renderHeatmap(){
+  try{
+    const q=new URLSearchParams();
+    if(currentPeriod!=='all') q.set('period',currentPeriod);
+    if(filterSpecies) q.set('species',filterSpecies);
+    const data=await fetch(`${API}/api/heatmap?${q}`).then(r=>r.json());
+    if(!data.length){showToast('ヒートマップデータなし');return;}
+    const maxC=Math.max(...data.map(d=>d.count),1);
+    const zoom=map.getZoom();
+    const radius=Math.max(15,Math.min(50,zoom*4-20));
+    const points=data.map(d=>[d.grid_lat,d.grid_lng,d.count/maxC]);
+    heatLayer=L.heatLayer(points,{radius,blur:radius*0.8,maxZoom:18,gradient:{0.2:'#00c9b1',0.5:'#f5a623',0.8:'#e74c3c',1:'#c0392b'}}).addTo(map);
+    showToast(`ヒートマップ: ${data.length}エリア`);
+  }catch(e){showToast('ヒートマップ取得失敗','error');}
+}
+
+// ── Tackle shops ──────────────────────────────────────────────
+async function loadTackleShops(){
+  showToast('釣具店を検索中...');
+  const b=map.getBounds();
+  // 検索範囲を少し広げる
+  const pad=0.1;
+  const bbox=`${b.getSouth()-pad},${b.getWest()-pad},${b.getNorth()+pad},${b.getEast()+pad}`;
+  const query=`[out:json][timeout:30];(node["shop"="fishing"](${bbox});node["shop"="tackle"](${bbox});way["shop"="fishing"](${bbox});way["shop"="tackle"](${bbox});relation["shop"="fishing"](${bbox});node["sport"="fishing"]["name"](${bbox}););out center;`;
+  try{
+    const data=await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`).then(r=>r.json());
+    data.elements.forEach(el=>{
+      const lat=el.lat??el.center?.lat; const lng=el.lon??el.center?.lon;
+      if(!lat||!lng) return;
+      const name=el.tags?.name||el.tags?.['name:ja']||null;
+      const displayName=name||'釣具店';
+      const icon=L.divIcon({className:'',html:`<div style="font-size:1.8rem;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.7))">🎣</div>`,iconSize:[28,28],iconAnchor:[14,14]});
+      const m=L.marker([lat,lng],{icon}).addTo(map);
+      if(name) m.bindTooltip(name,{permanent:true,className:'tackle-label',offset:[16,-10],direction:'right'});
+      m.bindPopup(`<div style="min-width:160px"><div style="font-weight:700;margin-bottom:4px;font-size:0.9rem;color:var(--white)">${displayName}</div>${el.tags?.phone?`<div style="font-size:0.75rem;color:var(--gray)">📞 ${el.tags.phone}</div>`:''} ${el.tags?.opening_hours?`<div style="font-size:0.72rem;color:var(--gray)">🕐 ${el.tags.opening_hours}</div>`:''} ${el.tags?.website?`<div style="font-size:0.72rem"><a href="${el.tags.website}" target="_blank" style="color:#4f9eff">🌐 ウェブサイト</a></div>`:''}</div>`);
+      tackleMarkers.push(m);
+    });
+    showToast(tackleMarkers.length>0?`釣具店 ${tackleMarkers.length}件`:'この範囲に釣具店データなし。範囲を広げてみてください。');
+  }catch(e){showToast('釣具店データ取得失敗','error');}
+}
+
+// ── Fishing boats (red glow dots) ────────────────────────────
+function renderBoats(){
+  const center=map.getCenter();
+  MOCK_BOATS.forEach((boat,i)=>{
+    const angle=(i/MOCK_BOATS.length)*2*Math.PI;
+    const dist=0.02+Math.random()*0.05;
+    const lat=center.lat+dist*Math.cos(angle);
+    const lng=center.lng+dist*Math.sin(angle);
+    const icon=L.divIcon({className:'',html:`<div class="glow-dot" style="background:var(--red)"></div>`,iconSize:[12,12],iconAnchor:[6,6]});
+    const m=L.marker([lat,lng],{icon}).addTo(map);
+    m.bindPopup(`<div style="min-width:180px"><div style="font-weight:700;font-size:0.95rem;margin-bottom:8px;color:var(--white)">⛵ ${boat.name}</div><div style="font-size:0.78rem;color:var(--gray);line-height:1.9">👨‍✈️ ${boat.captain}<br>🎣 ${boat.target}<br>💴 ${boat.price}<br>👥 定員 ${boat.cap}名</div>${boat.url?`<div style="margin-top:8px"><a href="${boat.url}" target="_blank" style="font-size:0.72rem;color:#4f9eff">🌐 HPを見る</a></div>`:''}<div style="font-size:0.6rem;color:var(--gray);margin-top:6px">※ サンプルデータ</div></div>`);
+    boatMarkers.push(m);
   });
+  showToast(`遊漁船 ${boatMarkers.length}件（サンプル）`);
+}
 
-  const marker = L.marker([c.lat, c.lng], { icon }).addTo(map);
+// ── Fishing anglers nearby ────────────────────────────────────
+async function loadFishingAnglers(){
+  if(!myLat){showToast('現在地を先に取得してください','error');return;}
+  try{
+    const data=await fetch(`${API}/api/users/fishing-nearby?lat=${myLat}&lng=${myLng}&radius=30`,{headers:{'Authorization':`Bearer ${authToken}`}}).then(r=>r.json());
+    data.forEach(u=>{
+      if(!u.last_lat||!u.last_lng) return;
+      const icon=L.divIcon({className:'',html:`<div class="glow-dot"></div>`,iconSize:[12,12],iconAnchor:[6,6]});
+      const m=L.marker([u.last_lat,u.last_lng],{icon}).addTo(map);
+      m.bindPopup(`<div><div style="font-weight:700;color:var(--white)">${u.username}</div><div style="font-size:0.72rem;color:var(--teal)">${u.distance_km}km先 · 🏆${u.rank_points}pts</div>${u.bio?`<div style="font-size:0.72rem;color:var(--gray);margin-top:4px">${u.bio}</div>`:''}<button onclick="sendMatchRequest(${u.id})" style="margin-top:8px;width:100%;padding:6px;border-radius:6px;border:none;background:rgba(0,201,177,0.2);color:var(--teal);cursor:pointer;font-size:0.75rem">釣りとも申請</button></div>`);
+      anglerMarkers.push(m);
+    });
+    showToast(data.length>0?`釣行中 ${data.length}人`:'近くに釣行中の人はいません');
+  }catch{showToast('データ取得失敗','error');}
+}
 
-  const lureHtml = c.lure_name ? `<div>🎣 ${c.lure_name}</div>` : '';
-  const sizeHtml = c.size_cm    ? `<div>📏 ${c.size_cm}cm${c.weight_g ? ` / ${c.weight_g}g` : ''}</div>` : '';
-  const memoHtml = c.memo       ? `<div>📝 ${c.memo}</div>` : '';
-  const photoHtml = c.photo_filename
-    ? `<img class="pp-photo" src="/uploads/${c.photo_filename}" loading="lazy">` : '';
-  const date = new Date(c.caught_at).toLocaleDateString('ja-JP', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
+// ── Tides ─────────────────────────────────────────────────────
+async function loadTides(){
+  try{
+    const t=await fetch(`${API}/api/tides`).then(r=>r.json());
+    document.getElementById('tc-moon').textContent=t.moon_phase;
+    document.getElementById('tc-type').textContent=t.tide_type;
+    document.getElementById('tc-current').textContent=`${t.current==='上げ潮'?'⬆':t.current==='下げ潮'?'⬇':'〜'} ${t.current}`;
+    document.getElementById('tc-times').textContent=`満潮 ${t.next_high} · 干潮 ${t.next_low}`;
+  }catch{}
+}
 
-  const navLat = c.lat, navLng = c.lng;
-  const gUrl = `https://www.google.com/maps/dir/?api=1&destination=${navLat},${navLng}`;
-  const aUrl = `http://maps.apple.com/?daddr=${navLat},${navLng}`;
+// ── AI sheet ──────────────────────────────────────────────────
+async function openAiSheet(){
+  openOverlay('ai-sheet');
+  document.getElementById('ai-content').innerHTML='<div class="loader" style="margin:40px auto"></div>';
+  try{
+    const s=await fetch(`${API}/api/fishing-suggestion`).then(r=>r.json());
+    document.getElementById('ai-content').innerHTML=`
+      <div class="ai-score">${s.overall_score}</div><div class="ai-date">${s.date}</div>
+      <div class="ai-section"><div class="ai-section-title">⏰ 時間帯: ${s.time_name}</div><div class="ai-section-body">${s.time_msg}</div></div>
+      <div class="ai-section"><div class="ai-section-title">🌊 潮汐: ${s.tide_current} · ${s.tide_type} · ${s.moon_phase}</div><div class="ai-section-body">${s.tide_msg}</div><div style="font-size:0.72rem;color:var(--gray);margin-top:6px">次の満潮 ${s.next_high} · 次の干潮 ${s.next_low}</div></div>
+      <div class="ai-section"><div class="ai-section-title">🐟 今月の狙い目</div>${s.targets.map(t=>`<div class="ai-target-row"><div><div class="ai-fish-name">${t.fish}</div><div class="ai-fish-spot">📍 ${t.spot}</div></div></div>`).join('')}</div>
+      <div style="font-size:0.65rem;color:var(--gray);text-align:center;margin-top:8px">ルールベース予測 · APIゼロ</div>`;
+  }catch{ document.getElementById('ai-content').innerHTML='<div style="text-align:center;color:var(--gray);padding:40px">読み込み失敗</div>'; }
+}
 
-  marker.bindPopup(`
-    <div class="pin-popup">
-      <div class="pp-fish">
-        <span class="pp-emoji">${c.fish_emoji}</span>
-        <div>
-          <div class="pp-name">${c.fish_species}</div>
-          ${c.size_cm ? `<div class="pp-size">${c.size_cm}cm</div>` : ''}
+// ── Social sheet ──────────────────────────────────────────────
+let currentStab='partners';
+
+async function openSocialSheet(){
+  if(!currentUser){showToast('ログインが必要です','error');return;}
+  openOverlay('social-sheet');
+  await loadSocialTab(currentStab);
+}
+
+async function loadSocialTab(tab){
+  currentStab=tab;
+  document.querySelectorAll('.stab').forEach(s=>s.classList.toggle('active',s.dataset.stab===tab));
+  const el=document.getElementById('social-content');
+  el.innerHTML='<div class="loader" style="margin:40px auto"></div>';
+  if(tab==='partners') await loadPartnersTab(el);
+  else if(tab==='friends') await loadFriendsTab(el);
+  else if(tab==='rank') await loadRankTab(el);
+}
+
+async function loadPartnersTab(el){
+  if(!myLat){el.innerHTML='<div style="text-align:center;color:var(--gray);padding:20px">現在地を取得してください</div>';return;}
+  try{
+    const data=await fetch(`${API}/api/users/fishing-nearby?lat=${myLat}&lng=${myLng}&radius=50`,{headers:{'Authorization':`Bearer ${authToken}`}}).then(r=>r.json());
+    if(!data.length){el.innerHTML='<div style="text-align:center;color:var(--gray);padding:20px">近くに釣行中の人はいません</div>';return;}
+    el.innerHTML=data.map(u=>`
+      <div class="partner-card">
+        <div class="partner-avatar">${u.avatar_filename?`<img src="/uploads/${u.avatar_filename}">`:`${(u.username||'?')[0].toUpperCase()}`}</div>
+        <div class="partner-info">
+          <div class="partner-name">${u.username}</div>
+          <div class="partner-dist">📍 ${u.distance_km}km先</div>
+          <div class="partner-rank">🏆 ${u.rank_points}pts${u.bio?` · ${u.bio}`:''}</div>
+          <div class="partner-actions">
+            <button class="partner-btn pb-match" onclick="sendMatchRequest(${u.id})">釣りとも申請</button>
+          </div>
         </div>
-      </div>
-      <span class="pp-prv ${c.privacy}">${privacyLabel[c.privacy]}</span>
-      ${photoHtml}
-      <div class="pp-meta">${sizeHtml}${lureHtml}${memoHtml}<div>🕐 ${date}</div></div>
-      <div class="pp-nav">
-        <a href="${gUrl}" target="_blank" class="g-btn">🗺 Googleマップ</a>
-        <a href="${aUrl}" target="_blank" class="a-btn">🍎 Appleマップ</a>
-      </div>
-    </div>
-  `, { maxWidth: 260 });
-
-  catchMarkers.push(marker);
+      </div>`).join('');
+  }catch{el.innerHTML='<div style="text-align:center;color:var(--gray);padding:20px">読み込み失敗</div>';}
 }
 
-// ── Fish list ─────────────────────────────────────────────────
-async function loadFishList() {
-  const res = await fetch(`${API}/api/fish-list`);
-  const list = await res.json();
-  const grid = document.getElementById('fish-grid');
-  grid.innerHTML = '';
-  list.forEach(f => {
-    const el = document.createElement('div');
-    el.className = 'fish-chip';
-    el.dataset.id = f.id;
-    el.dataset.name = f.name;
-    el.dataset.emoji = f.emoji;
-    el.innerHTML = `<span class="fc-emoji">${f.emoji}</span><span class="fc-name">${f.name}</span>`;
-    el.addEventListener('click', () => selectFish(el, f));
+async function loadFriendsTab(el){
+  try{
+    const data=await fetch(`${API}/api/friends`,{headers:{'Authorization':`Bearer ${authToken}`}}).then(r=>r.json());
+    if(!data.length){el.innerHTML='<div style="text-align:center;color:var(--gray);padding:20px">フレンドがいません。近くの釣り人に申請しましょう</div>';return;}
+    el.innerHTML=data.map(f=>`
+      <div class="friend-card">
+        <div class="fishing-badge ${f.is_fishing?'':'offline'}"></div>
+        <div class="partner-avatar" style="width:36px;height:36px;font-size:1rem">${f.avatar_filename?`<img src="/uploads/${f.avatar_filename}">`:`${(f.username||'?')[0].toUpperCase()}`}</div>
+        <div style="flex:1"><div style="font-size:0.85rem;font-weight:700;color:var(--white)">${f.username}</div><div style="font-size:0.68rem;color:var(--gray)">🏆 ${f.rank_points}pts · ${f.status==='pending'&&f.direction==='received'?'申請受信中':f.status==='pending'?'申請中':'フレンド'}</div></div>
+        ${f.status==='pending'&&f.direction==='received'?`<button class="accept-btn" onclick="acceptFriend(${f.id})">承認</button>`:f.status==='accepted'?`<button class="accept-btn" onclick="openRoom(${f.friend_id})" style="background:rgba(0,201,177,0.15)">ルーム</button>`:''}
+      </div>`).join('');
+  }catch{el.innerHTML='<div style="text-align:center;color:var(--gray);padding:20px">読み込み失敗</div>';}
+}
+
+async function loadRankTab(el){
+  try{
+    const data=await fetch(`${API}/api/rank/leaderboard`).then(r=>r.json());
+    const myRank=data.findIndex(u=>u.id===currentUser?.id)+1;
+    el.innerHTML=`${myRank>0?`<div style="font-size:0.72rem;color:var(--teal);text-align:center;margin-bottom:12px">あなたのランク: ${myRank}位 / ${data.length}人</div>`:''}
+      ${data.map((u,i)=>`<div class="rank-row"><span class="rank-num">${i+1}</span><div class="partner-avatar" style="width:32px;height:32px;font-size:0.9rem;flex-shrink:0">${u.avatar_filename?`<img src="/uploads/${u.avatar_filename}">`:`${(u.username||'?')[0].toUpperCase()}`}</div><div style="font-size:0.82rem;color:${u.id===currentUser?.id?'var(--teal)':'var(--white)'};">${u.username}${u.is_fishing?'  🎣':''}</div><span class="rank-pts">${u.rank_points}</span></div>`).join('')}`;
+  }catch{el.innerHTML='<div style="text-align:center;color:var(--gray);padding:20px">読み込み失敗</div>';}
+}
+
+async function sendMatchRequest(userId){
+  if(!currentUser){showToast('ログインが必要です','error');return;}
+  try{
+    const r=await fetch(`${API}/api/friends/request`,{method:'POST',headers:authHeaders(),body:JSON.stringify({addressee_id:userId})});
+    if(r.ok){showToast('釣りとも申請を送りました！');}
+    else{const e=await r.json();showToast(e.detail||'申請失敗','error');}
+  }catch{showToast('通信エラー','error');}
+}
+
+async function acceptFriend(friendId){
+  try{
+    const r=await fetch(`${API}/api/friends/${friendId}/respond`,{method:'PUT',headers:authHeaders(),body:JSON.stringify({status:'accepted'})});
+    if(r.ok){showToast('フレンドになりました！🎣');loadSocialTab('friends');}
+  }catch{showToast('エラー','error');}
+}
+
+// ── Room ──────────────────────────────────────────────────────
+async function openRoom(partnerId){
+  if(!currentUser) return;
+  try{
+    const r=await fetch(`${API}/api/rooms`,{method:'POST',headers:authHeaders(),body:JSON.stringify({addressee_id:partnerId})});
+    if(!r.ok){showToast('ルーム作成失敗','error');return;}
+    currentRoom=await r.json();
+    closeAllSheets();
+    openOverlay('room-sheet');
+    initRoomSheet();
+  }catch{showToast('エラー','error');}
+}
+
+function initRoomSheet(){
+  if(!currentRoom) return;
+  const partner=currentRoom.partner||{};
+  document.getElementById('room-title').textContent=`🎣 ${partner.username||'パートナー'}とのルーム`;
+  document.getElementById('room-partner-info').innerHTML=`<div class="room-partner">${partner.username||'パートナー'}</div><div class="room-status">🏆 ${partner.rank_points||1000}pts ${partner.is_fishing?'· 🎣 釣行中':''}</div>`;
+
+  if(!roomMap){
+    roomMap=L.map('room-map',{center:[myLat||35.68,myLng||139.69],zoom:13,zoomControl:false,attributionControl:false});
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{maxZoom:19,subdomains:['a','b','c','d']}).addTo(roomMap);
+  }
+  setTimeout(()=>roomMap.invalidateSize(),300);
+
+  if(currentRoom.meeting_lat){
+    const mIcon=L.divIcon({className:'',html:`<div style="font-size:1.5rem">📍</div>`,iconSize:[24,24],iconAnchor:[12,24]});
+    roomMarkers.forEach(m=>roomMap.removeLayer(m)); roomMarkers=[];
+    const m=L.marker([currentRoom.meeting_lat,currentRoom.meeting_lng],{icon:mIcon}).addTo(roomMap);
+    m.bindPopup(`<div style="color:#111">${currentRoom.meeting_label||'集合場所'}</div>`);
+    roomMarkers.push(m);
+    roomMap.setView([currentRoom.meeting_lat,currentRoom.meeting_lng],14);
+  }
+
+  document.getElementById('room-pin-btn').onclick=async()=>{
+    if(!myLat){showToast('現在地が必要です','error');return;}
+    const label=prompt('集合場所の名前を入力してください');
+    if(!label) return;
+    try{
+      const r=await fetch(`${API}/api/rooms/${currentRoom.id}/meeting`,{method:'PUT',headers:authHeaders(),body:JSON.stringify({lat:myLat,lng:myLng,label})});
+      if(r.ok){currentRoom=await r.json();showToast('集合場所を共有しました！');initRoomSheet();}
+    }catch{showToast('エラー','error');}
+  };
+}
+
+// ── Profile sheet ─────────────────────────────────────────────
+function openProfileSheet(){
+  if(!currentUser){showToast('ログインが必要です','error');return;}
+  document.getElementById('profile-username').value=currentUser.username||'';
+  document.getElementById('profile-bio').value=currentUser.bio||'';
+  document.getElementById('profile-instagram').value=currentUser.instagram_id||'';
+  document.getElementById('profile-rank-pts').textContent=currentUser.rank_points||1000;
+  if(currentUser.avatar_filename){
+    document.getElementById('profile-avatar-img').src=`/uploads/${currentUser.avatar_filename}`;
+    document.getElementById('profile-avatar-img').style.display='block';
+    document.getElementById('profile-avatar-icon').style.display='none';
+  }
+  openOverlay('profile-sheet');
+}
+
+// ── Fish list + species filter ─────────────────────────────────
+async function loadFishList(){
+  fishList=await fetch(`${API}/api/fish-list`).then(r=>r.json());
+  const grid=document.getElementById('fish-grid');
+  grid.innerHTML='';
+  fishList.forEach(f=>{
+    const el=document.createElement('div'); el.className='fish-chip';
+    el.innerHTML=`<span class="fc-emoji">${f.emoji}</span><span class="fc-name">${f.name}</span>`;
+    el.addEventListener('click',()=>{
+      document.querySelectorAll('.fish-chip').forEach(c=>c.classList.remove('selected'));
+      el.classList.add('selected');
+      selectedSpeciesForPost=f;
+      document.getElementById('sel-species').value=f.name;
+      document.getElementById('sel-emoji').value=f.emoji;
+      checkSubmit();
+    });
     grid.appendChild(el);
   });
+  const row=document.getElementById('species-row');
+  fishList.forEach(f=>{
+    const btn=document.createElement('button'); btn.className='fpill'; btn.dataset.species=f.name;
+    btn.textContent=`${f.emoji} ${f.name}`;
+    btn.addEventListener('click',()=>{
+      document.querySelectorAll('#species-row .fpill').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active'); filterSpecies=f.name; refreshMap();
+    });
+    row.appendChild(btn);
+  });
 }
 
-function selectFish(el, f) {
-  document.querySelectorAll('.fish-chip').forEach(c => c.classList.remove('selected'));
-  el.classList.add('selected');
-  selectedSpecies = f;
-  document.getElementById('sel-species').value = f.name;
-  document.getElementById('sel-emoji').value = f.emoji;
-  checkSubmit();
-}
-
-// ── Post form ─────────────────────────────────────────────────
-function setPostLocation(lat, lng, label) {
-  postLat = lat; postLng = lng;
-  document.getElementById('post-lat').value = lat;
-  document.getElementById('post-lng').value = lng;
-  document.getElementById('loc-display').textContent = label || `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
-  checkSubmit();
-}
-
-function checkSubmit() {
-  const ok = selectedSpecies && postLat && postLng;
-  document.getElementById('submit-btn').disabled = !ok;
-}
-
-// ── Sheet open / close ────────────────────────────────────────
-function openSheet() {
-  document.getElementById('sheet').classList.add('open');
+// ── Helpers ───────────────────────────────────────────────────
+function openOverlay(sheetId){
   document.getElementById('sheet-overlay').classList.add('open');
-  if (myLat) setPostLocation(myLat, myLng, `現在地 (${myLat.toFixed(4)}, ${myLng.toFixed(4)})`);
+  document.getElementById(sheetId).classList.add('open');
 }
-function closeSheet() {
-  document.getElementById('sheet').classList.remove('open');
+function closeAllSheets(){
+  document.querySelectorAll('.slide-sheet').forEach(s=>s.classList.remove('open'));
   document.getElementById('sheet-overlay').classList.remove('open');
 }
-
-// ── Submit ────────────────────────────────────────────────────
-document.getElementById('post-form').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const btn = document.getElementById('submit-btn');
-  btn.disabled = true;
-  btn.textContent = '投稿中...';
-
-  try {
-    const fd = new FormData(e.target);
-    const res = await fetch(`${API}/api/catches`, { method: 'POST', body: fd });
-    if (!res.ok) throw new Error(await res.text());
-    const c = await res.json();
-    closeSheet();
-    e.target.reset();
-    document.querySelectorAll('.fish-chip').forEach(c => c.classList.remove('selected'));
-    selectedSpecies = null;
-    postLat = postLng = null;
-    document.getElementById('loc-display').textContent = '現在地を取得中...';
-    document.getElementById('photo-preview').style.display = 'none';
-    if (c.display_lat) addCatchPin(c);
-    showToast(`${c.fish_emoji} ${c.fish_species} を投稿しました！`);
-    await loadCatches();
-  } catch(err) {
-    showToast('投稿に失敗しました', 'error');
-    console.error(err);
-  } finally {
-    btn.disabled = false;
-    btn.textContent = '投稿する';
-  }
-});
-
-// ── Privacy buttons ───────────────────────────────────────────
-document.querySelectorAll('.prv-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.prv-btn').forEach(b => b.classList.remove('selected'));
-    btn.classList.add('selected');
-    selectedPrivacy = btn.dataset.prv;
-    document.getElementById('sel-privacy').value = selectedPrivacy;
-  });
-});
-
-// ── Photo preview ─────────────────────────────────────────────
-document.getElementById('photo-input').addEventListener('change', (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = (ev) => {
-    const img = document.getElementById('photo-preview');
-    img.src = ev.target.result;
-    img.style.display = 'block';
-  };
-  reader.readAsDataURL(file);
-});
-
-// ── Mode pills ────────────────────────────────────────────────
-document.querySelectorAll('.mode-pill').forEach(pill => {
-  pill.addEventListener('click', () => {
-    document.querySelectorAll('.mode-pill').forEach(p => p.classList.remove('active'));
-    pill.classList.add('active');
-    currentMode = pill.dataset.mode;
-    if (currentMode === 'catches') loadCatches();
-    else showToast(`${pill.textContent}はPhase 2で実装予定`);
-  });
-});
-
-// ── Bottom nav ────────────────────────────────────────────────
-document.querySelectorAll('.nav-item').forEach(item => {
-  item.addEventListener('click', () => {
-    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-    item.classList.add('active');
-    if (item.dataset.tab === 'post') openSheet();
-    else if (item.dataset.tab === 'records') showToast('記録はPhase 2で実装予定');
-  });
-});
-
-// ── Toast ─────────────────────────────────────────────────────
-function showToast(msg, type='') {
-  const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.className = 'show' + (type ? ' ' + type : '');
-  clearTimeout(t._tid);
-  t._tid = setTimeout(() => { t.className = ''; }, 2800);
+function setPostLocation(lat,lng,label){ postLat=lat;postLng=lng;document.getElementById('post-lat').value=lat;document.getElementById('post-lng').value=lng;document.getElementById('loc-display').textContent=label;checkSubmit(); }
+function checkSubmit(){ document.getElementById('submit-btn').disabled=!(selectedSpeciesForPost&&postLat&&postLng); }
+function openSheet(){ openOverlay('sheet');if(myLat)setPostLocation(myLat,myLng,`現在地 (${myLat.toFixed(4)}, ${myLng.toFixed(4)})`); }
+function showToast(msg,type=''){
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.className='show'+(type?' '+type:'');
+  clearTimeout(t._tid); t._tid=setTimeout(()=>{t.className='';},2800);
 }
 
-// ── Map zoom end → reload catches ────────────────────────────
-map || (() => {})();  // ensure map exists
-
-// ── Buttons ───────────────────────────────────────────────────
-document.getElementById('my-loc-btn').addEventListener('click', () => {
-  if (myLat) map.setView([myLat, myLng], 15);
-  else getMyLocation();
+// ── Events ────────────────────────────────────────────────────
+// Auth
+document.getElementById('login-form').addEventListener('submit',async e=>{
+  e.preventDefault();
+  const email=document.getElementById('login-email').value;
+  const pw=document.getElementById('login-pw').value;
+  document.getElementById('login-err').textContent='';
+  try{
+    const r=await fetch(`${API}/api/auth/login`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password:pw})});
+    const d=await r.json();
+    if(!r.ok){document.getElementById('login-err').textContent=d.detail||'ログイン失敗';return;}
+    saveAuth(d.token,d.user); hideAuthOverlay();
+  }catch{document.getElementById('login-err').textContent='通信エラー';}
 });
-document.getElementById('fab').addEventListener('click', openSheet);
-document.getElementById('sheet-overlay').addEventListener('click', closeSheet);
-document.getElementById('use-current-loc').addEventListener('click', () => {
-  if (myLat) setPostLocation(myLat, myLng, `現在地 (${myLat.toFixed(4)}, ${myLng.toFixed(4)})`);
-  else getMyLocation((la, ln) => setPostLocation(la, ln, `現在地 (${la.toFixed(4)}, ${ln.toFixed(4)})`));
+
+document.getElementById('register-form').addEventListener('submit',async e=>{
+  e.preventDefault();
+  const name=document.getElementById('reg-name').value;
+  const email=document.getElementById('reg-email').value;
+  const pw=document.getElementById('reg-pw').value;
+  document.getElementById('reg-err').textContent='';
+  try{
+    const r=await fetch(`${API}/api/auth/register`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,username:name,password:pw})});
+    const d=await r.json();
+    if(!r.ok){document.getElementById('reg-err').textContent=d.detail||'登録失敗';return;}
+    saveAuth(d.token,d.user); hideAuthOverlay();
+  }catch{document.getElementById('reg-err').textContent='通信エラー';}
+});
+
+document.getElementById('tab-login').addEventListener('click',()=>{
+  document.getElementById('tab-login').classList.add('active');
+  document.getElementById('tab-register').classList.remove('active');
+  document.getElementById('login-form').style.display='flex';
+  document.getElementById('register-form').style.display='none';
+});
+document.getElementById('tab-register').addEventListener('click',()=>{
+  document.getElementById('tab-register').classList.add('active');
+  document.getElementById('tab-login').classList.remove('active');
+  document.getElementById('register-form').style.display='flex';
+  document.getElementById('login-form').style.display='none';
+});
+
+// Mode
+document.querySelectorAll('.mode-pill').forEach(p=>p.addEventListener('click',()=>{
+  document.querySelectorAll('.mode-pill').forEach(x=>x.classList.remove('active'));
+  p.classList.add('active'); currentMode=p.dataset.mode;
+  const showF=currentMode==='catches'||currentMode==='heatmap';
+  document.getElementById('filter-bar').classList.toggle('hidden',!showF);
+  refreshMap();
+}));
+
+// Period filter
+document.querySelectorAll('#period-row .fpill').forEach(btn=>btn.addEventListener('click',()=>{
+  document.querySelectorAll('#period-row .fpill').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active'); currentPeriod=btn.dataset.period; refreshMap();
+}));
+
+// Nav
+document.querySelectorAll('.nav-item').forEach(item=>item.addEventListener('click',()=>{
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+  item.classList.add('active');
+  if(item.dataset.tab==='post') openSheet();
+  else if(item.dataset.tab==='social') openSocialSheet();
+  else if(item.dataset.tab==='ai') openAiSheet();
+}));
+
+// Social tabs
+document.querySelectorAll('.stab').forEach(s=>s.addEventListener('click',()=>loadSocialTab(s.dataset.stab)));
+
+// Map buttons
+document.getElementById('my-loc-btn').addEventListener('click',()=>{ if(myLat)map.setView([myLat,myLng],15);else getMyLocation(); });
+document.getElementById('ai-btn').addEventListener('click',openAiSheet);
+document.getElementById('fab').addEventListener('click',openSheet);
+document.getElementById('sheet-overlay').addEventListener('click',closeAllSheets);
+document.getElementById('tide-card').addEventListener('click',openAiSheet);
+document.getElementById('profile-btn').addEventListener('click',openProfileSheet);
+
+// Fishing status toggle
+document.getElementById('fishing-btn').addEventListener('click',async()=>{
+  if(!currentUser){showToast('ログインが必要です','error');return;}
+  isFishing=!isFishing;
+  const btn=document.getElementById('fishing-btn');
+  btn.classList.toggle('fishing-on',isFishing);
+  try{
+    await fetch(`${API}/api/users/status`,{method:'PUT',headers:authHeaders(),body:JSON.stringify({is_fishing:isFishing,lat:myLat||null,lng:myLng||null})});
+    showToast(isFishing?'🎣 釣行中ステータスをONにしました':'釣行中ステータスをOFFにしました');
+    if(currentUser) currentUser.is_fishing=isFishing;
+  }catch{isFishing=!isFishing;btn.classList.toggle('fishing-on',isFishing);}
+});
+
+// Post form
+document.getElementById('post-form').addEventListener('submit',async e=>{
+  e.preventDefault();
+  const btn=document.getElementById('submit-btn');
+  btn.disabled=true; btn.textContent='投稿中...';
+  try{
+    const r=await fetch(`${API}/api/catches`,{method:'POST',body:new FormData(e.target)});
+    if(!r.ok) throw new Error();
+    const c=await r.json();
+    closeAllSheets(); e.target.reset();
+    document.querySelectorAll('.fish-chip').forEach(x=>x.classList.remove('selected'));
+    selectedSpeciesForPost=null; postLat=postLng=null;
+    document.getElementById('loc-display').textContent='現在地を取得中...';
+    document.getElementById('photo-preview').style.display='none';
+    if(c.display_lat) addCatchPin(c);
+    showToast(`${c.fish_emoji} ${c.fish_species} を投稿しました！`);
+    await loadCatches();
+  }catch{showToast('投稿に失敗しました','error');}
+  finally{btn.disabled=false;btn.textContent='投稿する';}
+});
+
+document.querySelectorAll('.prv-btn').forEach(btn=>btn.addEventListener('click',()=>{
+  document.querySelectorAll('.prv-btn').forEach(b=>b.classList.remove('selected'));
+  btn.classList.add('selected'); document.getElementById('sel-privacy').value=btn.dataset.prv;
+}));
+
+document.getElementById('photo-input').addEventListener('change',e=>{
+  const f=e.target.files[0]; if(!f) return;
+  const reader=new FileReader();
+  reader.onload=ev=>{const img=document.getElementById('photo-preview');img.src=ev.target.result;img.style.display='block';};
+  reader.readAsDataURL(f);
+});
+
+document.getElementById('use-current-loc').addEventListener('click',()=>{
+  if(myLat) setPostLocation(myLat,myLng,`現在地 (${myLat.toFixed(4)}, ${myLng.toFixed(4)})`);
+  else getMyLocation((la,ln)=>setPostLocation(la,ln,`現在地 (${la.toFixed(4)}, ${ln.toFixed(4)})`));
+});
+
+// Profile
+document.getElementById('profile-save-btn').addEventListener('click',async()=>{
+  if(!currentUser) return;
+  try{
+    const r=await fetch(`${API}/api/users/profile`,{method:'PUT',headers:authHeaders(),body:JSON.stringify({
+      username:document.getElementById('profile-username').value,
+      bio:document.getElementById('profile-bio').value,
+      instagram_id:document.getElementById('profile-instagram').value,
+    })});
+    if(r.ok){currentUser=await r.json();localStorage.setItem('anglers_user',JSON.stringify(currentUser));updateProfileUI();showToast('プロフィールを保存しました');closeAllSheets();}
+  }catch{showToast('保存失敗','error');}
+});
+
+document.getElementById('profile-logout-btn').addEventListener('click',()=>{
+  clearAuth(); closeAllSheets();
+  document.getElementById('fishing-btn').classList.remove('fishing-on');
+  document.getElementById('profile-btn').textContent='👤';
+  showAuthOverlay();
+});
+
+document.getElementById('profile-avatar-btn').addEventListener('click',()=>document.getElementById('avatar-file-input').click());
+document.getElementById('avatar-file-input').addEventListener('change',async e=>{
+  const f=e.target.files[0]; if(!f) return;
+  const fd=new FormData(); fd.append('photo',f);
+  try{
+    const r=await fetch(`${API}/api/users/avatar`,{method:'POST',headers:{'Authorization':`Bearer ${authToken}`},body:fd});
+    if(r.ok){currentUser=await r.json();localStorage.setItem('anglers_user',JSON.stringify(currentUser));
+      document.getElementById('profile-avatar-img').src=`/uploads/${currentUser.avatar_filename}`;
+      document.getElementById('profile-avatar-img').style.display='block';
+      document.getElementById('profile-avatar-icon').style.display='none';
+      updateProfileUI(); showToast('アイコンを更新しました');}
+  }catch{showToast('アップロード失敗','error');}
 });
 
 // ── Boot ─────────────────────────────────────────────────────
-(async () => {
+(async()=>{
+  loadAuth();
   initMap();
   await loadFishList();
+  await loadTides();
 
-  // get location first, then load catches
-  getMyLocation(async () => {
+  const valid=await validateToken();
+  if(!valid){
+    showAuthOverlay();
+    document.getElementById('loading').classList.add('hidden');
+  } else {
+    hideAuthOverlay();
+  }
+
+  getMyLocation(async()=>{
     await loadCatches();
-    map.on('moveend', loadCatches);
+    map.on('moveend',()=>{if(currentMode==='catches')loadCatches();});
     document.getElementById('loading').classList.add('hidden');
   });
 
-  // PWA service worker
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js').catch(() => {});
-  }
+  if('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(()=>{});
 })();
 </script>
 </body>
