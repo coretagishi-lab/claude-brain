@@ -546,7 +546,8 @@ function updateProfileUI(){
 
 // ── Map init ─────────────────────────────────────────────────
 function initMap(){
-  map = L.map('map',{center:[35.68,139.69],zoom:12,zoomControl:false,attributionControl:true});
+  map = L.map('map',{center:[35.68,139.69],zoom:12,zoomControl:false,attributionControl:true,
+    autoPanPaddingTopLeft:L.point(5,220),autoPanPaddingBottomRight:L.point(5,80)});
   L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{
     maxZoom:19,subdomains:['a','b','c','d'],
     attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions">CARTO</a>',
@@ -628,7 +629,7 @@ async function loadCatches(){
 }
 
 function addCatchPin(c){
-  const icon=L.divIcon({className:'',html:`<div style="font-size:1.5rem;line-height:1;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.8));cursor:pointer">${c.fish_emoji}</div>`,iconSize:[26,26],iconAnchor:[13,13],popupAnchor:[0,-16]});
+  const icon=L.divIcon({className:'',html:`<div style="font-size:1.5rem;line-height:1;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.8));cursor:pointer">${c.fish_emoji}</div>`,iconSize:[26,26],iconAnchor:[13,13],popupAnchor:[0,8]});
   const m=L.marker([c.lat,c.lng],{icon}).addTo(map);
   const lH=c.lure_name?`<div>🎣 ${c.lure_name}</div>`:'';
   const sH=c.size_cm?`<div>📏 ${c.size_cm}cm${c.weight_g?` · ${c.weight_g}g`:''}</div>`:'';
@@ -643,34 +644,39 @@ function addCatchPin(c){
 
 // ── Heatmap ───────────────────────────────────────────────────
 async function renderHeatmap(){
+  showToast('🌡 ヒートマップ計算中...');
   try{
     const q=new URLSearchParams();
     if(currentPeriod!=='all') q.set('period',currentPeriod);
     if(filterSpecies) q.set('species',filterSpecies);
     const sp=filterSpecies||'シーバス';
+    // myLatが未取得でもmap.getCenter()でフォールバック
+    const lat=myLat||map.getCenter().lat;
+    const lng=myLng||map.getCenter().lng;
     const [catchData,ecoData]=await Promise.all([
-      fetch(`${API}/api/heatmap?${q}`).then(r=>r.json()),
-      myLat?fetch(`${API}/api/ecological-heatmap?lat=${myLat}&lng=${myLng}&species=${encodeURIComponent(sp)}&radius=20`).then(r=>r.json()):Promise.resolve(null),
+      fetch(`${API}/api/heatmap?${q}`).then(r=>r.json()).catch(()=>[]),
+      fetch(`${API}/api/ecological-heatmap?lat=${lat}&lng=${lng}&species=${encodeURIComponent(sp)}&radius=20`)
+        .then(r=>r.json()).catch(()=>null),
     ]);
     const pts=[];
     if(ecoData&&ecoData.points&&ecoData.points.length){
       const eMax=Math.max(...ecoData.points.map(p=>p.score),0.01);
-      ecoData.points.forEach(p=>pts.push([p.lat,p.lng,p.score/eMax*0.55]));
+      ecoData.points.forEach(p=>pts.push([p.lat,p.lng,p.score/eMax*0.6]));
       showEcologyCard(ecoData);
     }
     if(catchData&&catchData.length){
       const cMax=Math.max(...catchData.map(d=>d.count),1);
       catchData.forEach(d=>pts.push([d.grid_lat,d.grid_lng,d.count/cMax]));
     }
-    if(!pts.length){showToast('ヒートマップデータなし');return;}
+    if(!pts.length){showToast('ヒートマップデータなし（エリアを移動してみてください）');return;}
     const zoom=map.getZoom();
-    const radius=Math.max(18,Math.min(50,zoom*4-18));
-    heatLayer=L.heatLayer(pts,{radius,blur:radius*0.75,maxZoom:18,max:1.0,
+    const radius=Math.max(20,Math.min(55,zoom*4-15));
+    heatLayer=L.heatLayer(pts,{radius,blur:radius*0.7,maxZoom:18,max:1.0,
       gradient:{0.0:'#001a33',0.3:'#003d6e',0.55:'#00c9b1',0.75:'#f5a623',0.9:'#e74c3c',1:'#c0392b'}
     }).addTo(map);
     const info=catchData&&catchData.length?`釣果${catchData.length}件+`:'';
-    showToast(`🌡 ヒートマップ: ${info}生態AI(${sp})`);
-  }catch(e){console.error(e);showToast('ヒートマップ取得失敗','error');}
+    showToast(`🌡 ${info}生態AI: ${sp} (${pts.length}pt)`);
+  }catch(e){console.error('heatmap error:',e);showToast('ヒートマップ取得失敗','error');}
 }
 
 // ── Tackle shops ──────────────────────────────────────────────
@@ -691,7 +697,8 @@ async function loadTackleShops(){
       const icon=L.divIcon({className:'',html:`<div style="font-size:1.8rem;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.7))">🎣</div>`,iconSize:[28,28],iconAnchor:[14,14]});
       const m=L.marker([lat,lng],{icon}).addTo(map);
       if(name) m.bindTooltip(name,{permanent:true,className:'tackle-label',offset:[16,-10],direction:'right'});
-      m.bindPopup(`<div style="min-width:160px"><div style="font-weight:700;margin-bottom:4px;font-size:0.9rem;color:var(--white)">${displayName}</div>${el.tags?.phone?`<div style="font-size:0.75rem;color:var(--gray)">📞 ${el.tags.phone}</div>`:''} ${el.tags?.opening_hours?`<div style="font-size:0.72rem;color:var(--gray)">🕐 ${el.tags.opening_hours}</div>`:''} ${el.tags?.website?`<div style="font-size:0.72rem"><a href="${el.tags.website}" target="_blank" style="color:#4f9eff">🌐 ウェブサイト</a></div>`:''}</div>`);
+      const hours=el.tags?.opening_hours||'営業時間不明';
+      m.bindPopup(`<div style="min-width:160px"><div style="font-weight:700;margin-bottom:6px;font-size:0.9rem;color:var(--white)">🎣 ${displayName}</div><div style="font-size:0.72rem;color:var(--teal);margin-bottom:4px">🕐 ${hours}</div>${el.tags?.phone?`<div style="font-size:0.72rem;color:var(--gray)">📞 ${el.tags.phone}</div>`:''}<div style="font-size:0.72rem;color:var(--gray)">${el.tags?.addr_detail||''}</div>${el.tags?.website?`<div style="font-size:0.72rem;margin-top:4px"><a href="${el.tags.website}" target="_blank" style="color:#4f9eff">🌐 ウェブサイト</a></div>`:''}</div>`);
       tackleMarkers.push(m);
     });
     showToast(tackleMarkers.length>0?`釣具店 ${tackleMarkers.length}件`:'この範囲に釣具店データなし。範囲を広げてみてください。');
