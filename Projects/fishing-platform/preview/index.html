@@ -1,0 +1,1285 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Angler's Map — AI釣りポイント予測プラットフォーム</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;900&family=Bebas+Neue&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --navy: #0a1628;
+    --navy2: #0f2040;
+    --teal: #00c9b1;
+    --teal2: #00a896;
+    --amber: #f5a623;
+    --amber2: #e8940f;
+    --slate: #1e3a5f;
+    --gray: #8aa4c0;
+    --white: #f0f8ff;
+    --text: #c8dff0;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--navy);
+    color: var(--text);
+    font-family: 'Noto Sans JP', sans-serif;
+    overflow-x: hidden;
+  }
+
+  /* ── NAV ── */
+  nav {
+    position: fixed; top: 0; width: 100%; z-index: 100;
+    background: rgba(10,22,40,0.92);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid rgba(0,201,177,0.15);
+    padding: 14px 32px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .logo {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 1.6rem;
+    color: var(--teal);
+    letter-spacing: 2px;
+  }
+  .logo span { color: var(--amber); }
+  nav ul { list-style: none; display: flex; gap: 28px; }
+  nav ul a {
+    color: var(--gray); text-decoration: none; font-size: 0.85rem;
+    transition: color .2s;
+  }
+  nav ul a:hover { color: var(--teal); }
+  .nav-cta {
+    background: var(--teal); color: var(--navy) !important;
+    padding: 8px 20px; border-radius: 6px; font-weight: 700 !important;
+  }
+
+  /* ── HERO ── */
+  .hero {
+    min-height: 100vh;
+    display: flex; align-items: center; justify-content: center;
+    position: relative; overflow: hidden;
+    padding: 100px 32px 60px;
+  }
+  .hero-bg {
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(ellipse 80% 60% at 50% 80%, rgba(0,201,177,0.08) 0%, transparent 70%),
+      radial-gradient(ellipse 40% 40% at 20% 30%, rgba(245,166,35,0.06) 0%, transparent 60%),
+      radial-gradient(ellipse 60% 50% at 80% 20%, rgba(0,168,150,0.06) 0%, transparent 60%);
+  }
+  /* water waves */
+  .wave {
+    position: absolute; bottom: 0; left: 0; width: 200%;
+    height: 160px; opacity: 0.06;
+  }
+  .wave1 { animation: wave 8s linear infinite; }
+  .wave2 { animation: wave 12s linear infinite reverse; opacity: 0.04; bottom: 20px; }
+  @keyframes wave {
+    0% { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
+  }
+  /* grid dots */
+  .hero::before {
+    content: '';
+    position: absolute; inset: 0;
+    background-image: radial-gradient(rgba(0,201,177,0.12) 1px, transparent 1px);
+    background-size: 40px 40px;
+    mask-image: radial-gradient(ellipse 80% 80% at 50% 50%, black, transparent);
+  }
+  .hero-inner { position: relative; z-index: 2; max-width: 860px; text-align: center; }
+  .hero-badge {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: rgba(0,201,177,0.12); border: 1px solid rgba(0,201,177,0.3);
+    border-radius: 20px; padding: 6px 16px; margin-bottom: 28px;
+    font-size: 0.8rem; color: var(--teal); letter-spacing: 1px;
+  }
+  .hero-badge::before { content: '◉'; font-size: 0.7rem; animation: pulse 2s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.3; } }
+  .hero h1 {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: clamp(3rem, 8vw, 6rem);
+    line-height: 1; letter-spacing: 3px;
+    color: var(--white);
+    margin-bottom: 8px;
+  }
+  .hero h1 span { color: var(--teal); }
+  .hero-sub {
+    font-size: clamp(1.1rem, 2.5vw, 1.5rem);
+    color: var(--gray); margin-bottom: 20px; font-weight: 700;
+  }
+  .hero-desc {
+    font-size: 1rem; color: var(--gray); max-width: 600px; margin: 0 auto 36px;
+    line-height: 1.8;
+  }
+  .hero-btns { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; }
+  .btn-primary {
+    background: var(--teal); color: var(--navy);
+    padding: 14px 32px; border-radius: 8px; font-weight: 700;
+    text-decoration: none; font-size: 1rem;
+    transition: transform .2s, box-shadow .2s;
+    box-shadow: 0 4px 24px rgba(0,201,177,0.35);
+  }
+  .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 32px rgba(0,201,177,0.5); }
+  .btn-secondary {
+    background: transparent; color: var(--white);
+    padding: 14px 32px; border-radius: 8px; font-weight: 700;
+    text-decoration: none; font-size: 1rem;
+    border: 1px solid rgba(255,255,255,0.2);
+    transition: border-color .2s, background .2s;
+  }
+  .btn-secondary:hover { border-color: var(--teal); background: rgba(0,201,177,0.07); }
+  .hero-stats {
+    display: flex; gap: 40px; justify-content: center; margin-top: 56px;
+    flex-wrap: wrap;
+  }
+  .stat { text-align: center; }
+  .stat-num {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 2.4rem; color: var(--teal); line-height: 1;
+  }
+  .stat-label { font-size: 0.75rem; color: var(--gray); margin-top: 4px; }
+
+  /* ── MAP MOCKUP ── */
+  .map-section {
+    padding: 100px 32px;
+    max-width: 1200px; margin: 0 auto;
+  }
+  .section-label {
+    font-size: 0.75rem; letter-spacing: 3px; color: var(--teal);
+    margin-bottom: 12px; text-transform: uppercase;
+  }
+  .section-title {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: clamp(2rem, 5vw, 3.5rem); color: var(--white);
+    line-height: 1.1; margin-bottom: 16px;
+  }
+  .section-desc { font-size: 1rem; color: var(--gray); max-width: 560px; line-height: 1.8; }
+  .map-layout {
+    display: grid; grid-template-columns: 1fr 420px; gap: 48px;
+    align-items: start; margin-top: 56px;
+  }
+  @media(max-width:900px) { .map-layout { grid-template-columns: 1fr; } }
+
+  /* map mockup */
+  .map-mock {
+    border-radius: 16px; overflow: hidden;
+    border: 1px solid rgba(0,201,177,0.2);
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(0,201,177,0.1);
+    background: #0d2b45;
+    position: relative; aspect-ratio: 4/3;
+  }
+  .map-base {
+    width: 100%; height: 100%; position: relative;
+    background:
+      linear-gradient(160deg, #0d2b45 0%, #0a1f35 40%, #082030 100%);
+  }
+  /* map grid */
+  .map-base::before {
+    content: '';
+    position: absolute; inset: 0;
+    background-image:
+      linear-gradient(rgba(0,201,177,0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,201,177,0.04) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+  /* coastline shape */
+  .map-coast {
+    position: absolute; bottom: 0; left: 0; right: 0; height: 55%;
+    background: #0f3250;
+    clip-path: polygon(0 40%, 15% 20%, 30% 35%, 45% 15%, 60% 30%, 75% 10%, 90% 25%, 100% 5%, 100% 100%, 0 100%);
+    border-top: 1px solid rgba(0,201,177,0.2);
+  }
+  /* heatmap dots */
+  .hmap { position: absolute; border-radius: 50%; pointer-events: none; }
+  .h1 { width:80px; height:80px; background:radial-gradient(rgba(245,166,35,0.7),transparent); top:30%; left:25%; }
+  .h2 { width:60px; height:60px; background:radial-gradient(rgba(245,166,35,0.5),transparent); top:25%; left:60%; }
+  .h3 { width:50px; height:50px; background:radial-gradient(rgba(0,201,177,0.6),transparent); top:15%; left:45%; }
+  .h4 { width:40px; height:40px; background:radial-gradient(rgba(245,166,35,0.4),transparent); top:40%; left:70%; }
+  .h5 { width:35px; height:35px; background:radial-gradient(rgba(0,201,177,0.5),transparent); top:10%; left:20%; }
+  /* pins */
+  .map-pin { position:absolute; display:flex; flex-direction:column; align-items:center; cursor:pointer; }
+  .pin-dot {
+    width:12px; height:12px; border-radius:50%;
+    box-shadow: 0 0 0 4px rgba(0,201,177,0.25);
+  }
+  .pin-label {
+    background: rgba(0,201,177,0.9); color: #0a1628;
+    font-size: 0.65rem; font-weight: 700; padding: 3px 8px;
+    border-radius: 4px; white-space: nowrap; margin-top: 4px;
+  }
+  .pin1 { top:28%; left:23%; }
+  .pin1 .pin-dot { background:var(--amber); box-shadow:0 0 0 4px rgba(245,166,35,0.25); }
+  .pin1 .pin-label { background:rgba(245,166,35,0.9); }
+  .pin2 { top:22%; left:58%; }
+  .pin2 .pin-dot { background:var(--teal); }
+  .pin3 { top:38%; left:68%; }
+  .pin3 .pin-dot { background:var(--teal); }
+  /* floating popup */
+  .map-popup {
+    position: absolute; top: 8%; right: 5%;
+    background: rgba(10,22,40,0.95);
+    border: 1px solid rgba(0,201,177,0.3);
+    border-radius: 10px; padding: 12px 16px; min-width: 160px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+    animation: floatup 3s ease-in-out infinite;
+  }
+  @keyframes floatup { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-6px)} }
+  .popup-title { font-size: 0.7rem; color: var(--teal); margin-bottom: 8px; font-weight: 700; }
+  .popup-fish { display:flex; align-items:center; gap:8px; margin-bottom:4px; }
+  .popup-fish .badge {
+    background: rgba(0,201,177,0.15); border:1px solid rgba(0,201,177,0.3);
+    border-radius:4px; padding:2px 7px; font-size:0.65rem; color:var(--teal);
+  }
+  .popup-fish span { font-size:0.7rem; color:var(--text); }
+  /* toggle buttons */
+  .map-toggle {
+    position: absolute; top: 12px; left: 12px;
+    display: flex; gap: 4px;
+  }
+  .toggle-btn {
+    background: rgba(10,22,40,0.85); border: 1px solid rgba(0,201,177,0.25);
+    color: var(--gray); padding: 4px 10px; border-radius: 4px; font-size: 0.62rem;
+    cursor: pointer; font-family: 'Noto Sans JP', sans-serif;
+  }
+  .toggle-btn.active { background: var(--teal); color: var(--navy); border-color: var(--teal); }
+  /* filter bar */
+  .map-filters {
+    position: absolute; bottom: 12px; left: 12px; right: 12px;
+    display: flex; gap: 6px;
+  }
+  .filter-chip {
+    background: rgba(10,22,40,0.85); border: 1px solid rgba(0,201,177,0.2);
+    color: var(--gray); padding: 4px 10px; border-radius: 12px; font-size: 0.62rem;
+    white-space: nowrap;
+  }
+  .filter-chip.active { border-color: var(--amber); color: var(--amber); }
+
+  /* map feature list */
+  .map-features { display: flex; flex-direction: column; gap: 20px; }
+  .feat-item {
+    display: flex; gap: 16px; align-items: flex-start;
+    padding: 20px; border-radius: 12px;
+    background: rgba(15,32,64,0.6);
+    border: 1px solid rgba(0,201,177,0.1);
+    transition: border-color .2s, background .2s;
+  }
+  .feat-item:hover { border-color: rgba(0,201,177,0.3); background: rgba(15,32,64,0.9); }
+  .feat-icon {
+    width: 44px; height: 44px; border-radius: 10px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.2rem;
+  }
+  .feat-icon.teal { background: rgba(0,201,177,0.15); }
+  .feat-icon.amber { background: rgba(245,166,35,0.15); }
+  .feat-title { font-weight: 700; color: var(--white); font-size: 0.9rem; margin-bottom: 4px; }
+  .feat-desc { font-size: 0.8rem; color: var(--gray); line-height: 1.6; }
+
+  /* ── FEATURES GRID ── */
+  .features-section {
+    background: var(--navy2);
+    padding: 100px 32px;
+    border-top: 1px solid rgba(0,201,177,0.08);
+    border-bottom: 1px solid rgba(0,201,177,0.08);
+  }
+  .features-inner { max-width: 1200px; margin: 0 auto; }
+  .features-header { text-align: center; margin-bottom: 64px; }
+  .features-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px;
+  }
+  @media(max-width:900px) { .features-grid { grid-template-columns: 1fr 1fr; } }
+  @media(max-width:600px) { .features-grid { grid-template-columns: 1fr; } }
+  .feature-card {
+    background: rgba(10,22,40,0.8);
+    border: 1px solid rgba(0,201,177,0.1);
+    border-radius: 16px; padding: 28px;
+    transition: transform .2s, border-color .2s, box-shadow .2s;
+    position: relative; overflow: hidden;
+  }
+  .feature-card::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, var(--teal), transparent);
+    opacity: 0; transition: opacity .2s;
+  }
+  .feature-card:hover { transform: translateY(-4px); border-color: rgba(0,201,177,0.25); box-shadow: 0 12px 40px rgba(0,0,0,0.4); }
+  .feature-card:hover::before { opacity: 1; }
+  .feature-card:nth-child(4n)::before { background: linear-gradient(90deg, var(--amber), transparent); }
+  .card-icon { font-size: 2rem; margin-bottom: 16px; }
+  .card-title { font-weight: 900; color: var(--white); font-size: 1rem; margin-bottom: 10px; }
+  .card-desc { font-size: 0.82rem; color: var(--gray); line-height: 1.7; }
+  .card-tag {
+    display: inline-block; margin-top: 14px;
+    background: rgba(0,201,177,0.1); border: 1px solid rgba(0,201,177,0.25);
+    color: var(--teal); padding: 3px 10px; border-radius: 4px; font-size: 0.7rem;
+  }
+  .card-tag.amber { background: rgba(245,166,35,0.1); border-color: rgba(245,166,35,0.25); color: var(--amber); }
+
+  /* ── AI SECTION ── */
+  .ai-section { padding: 100px 32px; max-width: 1200px; margin: 0 auto; }
+  .ai-layout {
+    display: grid; grid-template-columns: 420px 1fr; gap: 64px;
+    align-items: center; margin-top: 56px;
+  }
+  @media(max-width:900px) { .ai-layout { grid-template-columns: 1fr; } }
+
+  /* phone mockup */
+  .phone-mock {
+    background: #0a1628;
+    border: 2px solid rgba(0,201,177,0.25);
+    border-radius: 36px; padding: 12px;
+    box-shadow: 0 24px 64px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,201,177,0.08);
+    max-width: 280px; margin: 0 auto;
+  }
+  .phone-screen {
+    background: #0d1f38;
+    border-radius: 26px; overflow: hidden;
+  }
+  .phone-header {
+    background: #0f2a48;
+    padding: 14px 16px 10px;
+    border-bottom: 1px solid rgba(0,201,177,0.1);
+  }
+  .phone-title { font-size: 0.7rem; color: var(--teal); font-weight: 700; }
+  .phone-loc { font-size: 0.6rem; color: var(--gray); margin-top: 2px; }
+  .conditions-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 1px;
+    background: rgba(0,201,177,0.1);
+  }
+  .cond-item {
+    background: #0d1f38;
+    padding: 10px 12px;
+  }
+  .cond-label { font-size: 0.58rem; color: var(--gray); }
+  .cond-val { font-size: 0.85rem; color: var(--white); font-weight: 700; margin-top: 2px; }
+  .cond-val.good { color: var(--teal); }
+  .cond-val.mid { color: var(--amber); }
+  .ai-result {
+    padding: 14px;
+  }
+  .ai-result-title {
+    font-size: 0.65rem; color: var(--teal); font-weight: 700; margin-bottom: 10px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .ai-result-title::before { content: '◉'; animation: pulse 2s infinite; font-size: 0.5rem; }
+  .ai-point {
+    background: rgba(0,201,177,0.07);
+    border: 1px solid rgba(0,201,177,0.2);
+    border-radius: 8px; padding: 10px 12px; margin-bottom: 8px;
+  }
+  .ai-point-name { font-size: 0.72rem; color: var(--white); font-weight: 700; }
+  .ai-point-reason { font-size: 0.62rem; color: var(--gray); margin-top: 3px; line-height: 1.5; }
+  .ai-score {
+    display: flex; align-items: center; gap: 8px; margin-top: 6px;
+  }
+  .score-bar { flex: 1; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden; }
+  .score-fill { height: 100%; border-radius: 2px; background: linear-gradient(90deg, var(--teal), var(--amber)); }
+  .score-num { font-size: 0.6rem; color: var(--teal); font-weight: 700; }
+  .lure-suggest {
+    background: rgba(245,166,35,0.08);
+    border: 1px solid rgba(245,166,35,0.2);
+    border-radius: 8px; padding: 10px 12px;
+  }
+  .lure-title { font-size: 0.62rem; color: var(--amber); font-weight: 700; margin-bottom: 6px; }
+  .lure-item { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+  .lure-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--amber); flex-shrink: 0; }
+  .lure-name { font-size: 0.62rem; color: var(--text); }
+  .lure-why { font-size: 0.56rem; color: var(--gray); }
+
+  /* ai features */
+  .ai-features { display: flex; flex-direction: column; gap: 16px; }
+  .ai-feat {
+    display: flex; gap: 14px; align-items: flex-start;
+  }
+  .ai-feat-num {
+    width: 32px; height: 32px; border-radius: 8px; flex-shrink: 0;
+    background: rgba(0,201,177,0.12); border: 1px solid rgba(0,201,177,0.25);
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Bebas Neue', sans-serif; font-size: 1rem; color: var(--teal);
+  }
+  .ai-feat-title { font-weight: 700; color: var(--white); font-size: 0.88rem; margin-bottom: 3px; }
+  .ai-feat-desc { font-size: 0.78rem; color: var(--gray); line-height: 1.6; }
+
+  /* ── BOAT SECTION ── */
+  .boat-section {
+    background: linear-gradient(180deg, var(--navy) 0%, #071422 100%);
+    padding: 100px 32px;
+    border-top: 1px solid rgba(0,201,177,0.06);
+  }
+  .boat-inner { max-width: 1200px; margin: 0 auto; }
+  .boat-header { text-align: center; margin-bottom: 56px; }
+  .boat-cards {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 48px;
+  }
+  @media(max-width:900px) { .boat-cards { grid-template-columns: 1fr 1fr; } }
+  @media(max-width:600px) { .boat-cards { grid-template-columns: 1fr; } }
+  .boat-card {
+    background: rgba(15,32,64,0.7);
+    border: 1px solid rgba(0,201,177,0.12);
+    border-radius: 14px; overflow: hidden;
+  }
+  .boat-img {
+    height: 120px;
+    background: linear-gradient(135deg, #0f2a48 0%, #1a3a60 100%);
+    position: relative; overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 3rem;
+  }
+  .boat-img::after {
+    content: '';
+    position: absolute; bottom: 0; left: 0; right: 0; height: 40px;
+    background: linear-gradient(transparent, rgba(15,32,64,0.7));
+  }
+  .boat-body { padding: 16px; }
+  .boat-name { font-weight: 700; color: var(--white); font-size: 0.9rem; margin-bottom: 6px; }
+  .boat-meta { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+  .boat-tag {
+    background: rgba(0,201,177,0.1); border: 1px solid rgba(0,201,177,0.2);
+    color: var(--teal); padding: 2px 8px; border-radius: 4px; font-size: 0.62rem;
+  }
+  .boat-price { font-size: 0.78rem; color: var(--amber); font-weight: 700; }
+  .boat-sub { font-size: 0.65rem; color: var(--gray); }
+  .boat-compare {
+    text-align: center;
+    padding: 32px;
+    background: rgba(0,201,177,0.05);
+    border: 1px solid rgba(0,201,177,0.15);
+    border-radius: 16px;
+  }
+  .boat-compare-title { font-size: 1.1rem; font-weight: 700; color: var(--white); margin-bottom: 8px; }
+  .boat-compare-desc { font-size: 0.85rem; color: var(--gray); }
+
+  /* ── REVENUE / PRICING ── */
+  .pricing-section { padding: 100px 32px; max-width: 1200px; margin: 0 auto; }
+  .pricing-header { text-align: center; margin-bottom: 64px; }
+  .pricing-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px;
+    margin-bottom: 64px;
+  }
+  @media(max-width:900px) { .pricing-grid { grid-template-columns: 1fr; max-width: 400px; margin-left: auto; margin-right: auto; } }
+  .price-card {
+    background: rgba(10,22,40,0.8);
+    border: 1px solid rgba(0,201,177,0.12);
+    border-radius: 20px; padding: 36px 28px;
+    position: relative; text-align: center;
+  }
+  .price-card.featured {
+    border-color: rgba(0,201,177,0.4);
+    box-shadow: 0 0 40px rgba(0,201,177,0.1);
+  }
+  .price-badge {
+    position: absolute; top: -12px; left: 50%; transform: translateX(-50%);
+    background: var(--teal); color: var(--navy);
+    padding: 4px 14px; border-radius: 12px; font-size: 0.72rem; font-weight: 700;
+    white-space: nowrap;
+  }
+  .price-name { font-size: 0.8rem; color: var(--gray); margin-bottom: 12px; letter-spacing: 2px; }
+  .price-num {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 3.5rem; color: var(--white); line-height: 1;
+  }
+  .price-num span { font-size: 1rem; color: var(--gray); }
+  .price-sub { font-size: 0.78rem; color: var(--gray); margin-bottom: 28px; }
+  .price-features { list-style: none; text-align: left; margin-bottom: 28px; }
+  .price-features li {
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    font-size: 0.82rem; color: var(--text);
+    display: flex; gap: 8px; align-items: flex-start;
+  }
+  .price-features li::before { content: '✓'; color: var(--teal); flex-shrink: 0; font-weight: 700; }
+  .price-features li.locked { color: var(--gray); opacity: 0.5; }
+  .price-features li.locked::before { content: '—'; color: var(--gray); }
+  .price-btn {
+    display: block; padding: 12px 0; border-radius: 8px; font-weight: 700;
+    text-decoration: none; font-size: 0.9rem; transition: opacity .2s;
+  }
+  .price-btn.outline {
+    border: 1px solid rgba(0,201,177,0.3); color: var(--teal);
+  }
+  .price-btn.filled {
+    background: var(--teal); color: var(--navy);
+    box-shadow: 0 4px 20px rgba(0,201,177,0.3);
+  }
+  .price-btn:hover { opacity: 0.85; }
+
+  /* revenue streams */
+  .revenue-grid {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px;
+  }
+  @media(max-width:900px) { .revenue-grid { grid-template-columns: 1fr 1fr; } }
+  @media(max-width:600px) { .revenue-grid { grid-template-columns: 1fr; } }
+  .rev-item {
+    background: rgba(10,22,40,0.7);
+    border: 1px solid rgba(0,201,177,0.1);
+    border-radius: 12px; padding: 20px;
+    text-align: center;
+  }
+  .rev-icon { font-size: 1.8rem; margin-bottom: 10px; }
+  .rev-name { font-size: 0.78rem; font-weight: 700; color: var(--white); margin-bottom: 6px; }
+  .rev-desc { font-size: 0.7rem; color: var(--gray); line-height: 1.5; }
+
+  /* ── TECH SECTION ── */
+  .tech-section {
+    background: var(--navy2);
+    padding: 80px 32px;
+    border-top: 1px solid rgba(0,201,177,0.06);
+    border-bottom: 1px solid rgba(0,201,177,0.06);
+  }
+  .tech-inner { max-width: 1000px; margin: 0 auto; text-align: center; }
+  .tech-grid {
+    display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; margin-top: 40px;
+  }
+  .tech-item {
+    background: rgba(10,22,40,0.8);
+    border: 1px solid rgba(0,201,177,0.15);
+    border-radius: 10px; padding: 12px 20px;
+    font-size: 0.82rem; color: var(--text);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .tech-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--teal); }
+  .tech-dot.amber { background: var(--amber); }
+  .cost-box {
+    display: inline-flex; align-items: center; gap: 16px; margin-top: 32px;
+    background: rgba(0,201,177,0.07);
+    border: 1px solid rgba(0,201,177,0.2);
+    border-radius: 12px; padding: 20px 32px;
+  }
+  .cost-label { font-size: 0.8rem; color: var(--gray); }
+  .cost-num {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 2.5rem; color: var(--teal); line-height: 1;
+  }
+  .cost-sub { font-size: 0.7rem; color: var(--gray); }
+
+  /* ── CTA ── */
+  .cta-section {
+    padding: 120px 32px; text-align: center;
+    position: relative; overflow: hidden;
+  }
+  .cta-section::before {
+    content: '';
+    position: absolute; inset: 0;
+    background: radial-gradient(ellipse 70% 70% at 50% 50%, rgba(0,201,177,0.06) 0%, transparent 70%);
+  }
+  .cta-inner { position: relative; max-width: 640px; margin: 0 auto; }
+  .cta-title {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: clamp(2.5rem, 6vw, 4.5rem);
+    color: var(--white); line-height: 1; margin-bottom: 20px;
+  }
+  .cta-title span { color: var(--teal); }
+  .cta-desc { font-size: 1rem; color: var(--gray); line-height: 1.8; margin-bottom: 40px; }
+
+  /* ── FOOTER ── */
+  footer {
+    border-top: 1px solid rgba(0,201,177,0.08);
+    padding: 40px 32px;
+    text-align: center;
+    font-size: 0.78rem; color: var(--gray);
+  }
+  footer .logo { font-size: 1.3rem; margin-bottom: 8px; display: block; }
+
+  /* ── PRIVACY SECTION ── */
+  .privacy-section {
+    padding: 100px 32px;
+    background: linear-gradient(180deg, var(--navy2) 0%, var(--navy) 100%);
+    border-top: 1px solid rgba(0,201,177,0.06);
+  }
+  .privacy-inner { max-width: 1200px; margin: 0 auto; }
+  .privacy-header { text-align: center; margin-bottom: 56px; }
+  .privacy-cards {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px;
+    margin-bottom: 32px;
+  }
+  @media(max-width:900px) { .privacy-cards { grid-template-columns: 1fr; max-width: 420px; margin-left: auto; margin-right: auto; } }
+  .privacy-card {
+    background: rgba(10,22,40,0.85);
+    border: 1px solid rgba(0,201,177,0.1);
+    border-radius: 18px; padding: 28px 24px;
+    display: flex; flex-direction: column; gap: 14px;
+    position: relative;
+    transition: border-color .2s, transform .2s;
+  }
+  .privacy-card:hover { border-color: rgba(0,201,177,0.25); transform: translateY(-3px); }
+  .featured-privacy {
+    border-color: rgba(0,201,177,0.35);
+    box-shadow: 0 0 32px rgba(0,201,177,0.08);
+  }
+  .privacy-badge-top {
+    position: absolute; top: -12px; left: 50%; transform: translateX(-50%);
+    background: var(--teal); color: var(--navy);
+    padding: 4px 14px; border-radius: 12px; font-size: 0.7rem; font-weight: 700;
+    white-space: nowrap;
+  }
+  .privacy-icon { font-size: 2rem; }
+  .privacy-level {
+    font-family: 'Bebas Neue', sans-serif; font-size: 1.3rem;
+    color: var(--white); letter-spacing: 1px;
+  }
+  .area-level { color: var(--teal); }
+  .private-level { color: var(--amber); }
+
+  /* mini map demos */
+  .privacy-map-demo {
+    height: 80px; border-radius: 10px; position: relative; overflow: hidden;
+    background: #0d2236;
+    border: 1px solid rgba(255,255,255,0.06);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .demo-pin {
+    width: 12px; height: 12px; border-radius: 50%;
+    position: absolute;
+  }
+  .exact-pin { background: #f44; box-shadow: 0 0 0 4px rgba(255,68,68,0.25); }
+  .demo-ripple {
+    position: absolute;
+    width: 12px; height: 12px; border-radius: 50%;
+    border: 2px solid rgba(255,68,68,0.5);
+    animation: ripple 1.8s ease-out infinite;
+  }
+  @keyframes ripple {
+    0%   { transform: scale(1); opacity: 0.8; }
+    100% { transform: scale(5); opacity: 0; }
+  }
+  .demo-blur-circle {
+    width: 56px; height: 56px; border-radius: 50%;
+    background: radial-gradient(rgba(0,201,177,0.25), rgba(0,201,177,0.05));
+    border: 1px dashed rgba(0,201,177,0.4);
+    position: absolute;
+    animation: breathe 3s ease-in-out infinite;
+  }
+  @keyframes breathe { 0%,100%{transform:scale(1)} 50%{transform:scale(1.05)} }
+  .area-pin {
+    background: var(--teal);
+    box-shadow: 0 0 0 4px rgba(0,201,177,0.2);
+    width: 8px; height: 8px;
+  }
+  .private-demo { background: #071422; }
+  .demo-heatmap-dot {
+    width: 44px; height: 44px; border-radius: 50%;
+    background: radial-gradient(rgba(245,166,35,0.35), transparent);
+    position: absolute;
+  }
+  .demo-count-badge {
+    position: absolute; right: 14px; top: 10px;
+    background: rgba(245,166,35,0.9); color: #0a1628;
+    font-size: 0.65rem; font-weight: 700; padding: 3px 8px; border-radius: 4px;
+  }
+  .privacy-title { font-weight: 700; color: var(--white); font-size: 0.88rem; }
+  .privacy-desc { font-size: 0.78rem; color: var(--gray); line-height: 1.7; flex: 1; }
+  .privacy-desc strong { color: var(--teal); }
+  .private-level ~ .privacy-desc strong { color: var(--amber); }
+  .privacy-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+  .ptag {
+    font-size: 0.66rem; padding: 3px 9px; border-radius: 4px;
+    background: rgba(0,201,177,0.08); border: 1px solid rgba(0,201,177,0.2); color: var(--teal);
+  }
+  .area-tag { background: rgba(0,201,177,0.12); border-color: rgba(0,201,177,0.3); }
+  .private-tag { background: rgba(245,166,35,0.08); border-color: rgba(245,166,35,0.25); color: var(--amber); }
+
+  /* privacy note */
+  .privacy-note {
+    display: flex; gap: 16px; align-items: flex-start;
+    background: rgba(0,201,177,0.05);
+    border: 1px solid rgba(0,201,177,0.15);
+    border-radius: 12px; padding: 20px 24px;
+    max-width: 640px; margin: 0 auto;
+  }
+  .pnote-icon { font-size: 1.4rem; flex-shrink: 0; }
+  .pnote-title { font-weight: 700; color: var(--white); font-size: 0.88rem; margin-bottom: 4px; }
+  .pnote-desc { font-size: 0.78rem; color: var(--gray); line-height: 1.6; }
+
+  /* ── SCROLL REVEAL ── */
+  .reveal { opacity: 0; transform: translateY(32px); transition: opacity .6s ease, transform .6s ease; }
+  .reveal.visible { opacity: 1; transform: translateY(0); }
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <div class="logo">ANGLER'S<span>MAP</span></div>
+  <ul>
+    <li><a href="#map">マップ</a></li>
+    <li><a href="#ai">AI予測</a></li>
+    <li><a href="#boat">遊漁船</a></li>
+    <li><a href="#privacy">プライバシー</a></li>
+    <li><a href="#pricing">料金</a></li>
+    <li><a href="#pricing" class="nav-cta">無料で始める</a></li>
+  </ul>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-bg"></div>
+  <svg class="wave wave1" viewBox="0 0 1440 160" preserveAspectRatio="none">
+    <path d="M0,80 C360,160 720,0 1080,80 C1260,120 1380,40 1440,80 L1440,160 L0,160Z" fill="rgba(0,201,177,0.15)"/>
+  </svg>
+  <svg class="wave wave2" viewBox="0 0 1440 160" preserveAspectRatio="none">
+    <path d="M0,60 C360,120 720,20 1080,70 C1260,100 1380,30 1440,60 L1440,160 L0,160Z" fill="rgba(0,201,177,0.08)"/>
+  </svg>
+  <div class="hero-inner">
+    <div class="hero-badge">AI釣りポイント予測プラットフォーム — β版近日公開</div>
+    <h1>ANGLER'S<br><span>MAP</span></h1>
+    <p class="hero-sub">じゃらん × 食べログ × ヤマップの釣り版</p>
+    <p class="hero-desc">
+      潮汐・水温・天気・地形を論文ベースのAIが解析。今日どこで何が釣れるかを、理由付きで教える。釣果投稿SNS・遊漁船予約・釣具店マップが一体化した釣り特化総合プラットフォーム。
+    </p>
+    <div class="hero-btns">
+      <a href="#map" class="btn-primary">機能を見る</a>
+      <a href="#pricing" class="btn-secondary">料金プラン</a>
+    </div>
+    <div class="hero-stats">
+      <div class="stat"><div class="stat-num">AI</div><div class="stat-label">論文ベース予測エンジン</div></div>
+      <div class="stat"><div class="stat-num">5種</div><div class="stat-label">収益モデル</div></div>
+      <div class="stat"><div class="stat-num">1〜2円</div><div class="stat-label">1ユーザーあたり月間コスト</div></div>
+      <div class="stat"><div class="stat-num">PWA</div><div class="stat-label">スマホ完全対応</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- MAP SECTION -->
+<section id="map" class="map-section">
+  <div class="reveal">
+    <p class="section-label">Map Feature</p>
+    <h2 class="section-title">釣りポイントが一目でわかる<br>インタラクティブマップ</h2>
+    <p class="section-desc">AIヒートマップと実釣果ヒートマップを切り替え表示。過去データの鮮度を視覚化し、古い情報に惑わされない。</p>
+  </div>
+  <div class="map-layout reveal">
+    <!-- map mockup -->
+    <div class="map-mock">
+      <div class="map-base">
+        <div class="map-coast"></div>
+        <div class="hmap h1"></div>
+        <div class="hmap h2"></div>
+        <div class="hmap h3"></div>
+        <div class="hmap h4"></div>
+        <div class="hmap h5"></div>
+        <div class="map-pin pin1">
+          <div class="pin-dot"></div>
+          <div class="pin-label">🐟 シーバス ×14</div>
+        </div>
+        <div class="map-pin pin2">
+          <div class="pin-dot"></div>
+          <div class="pin-label">🐠 チヌ ×8</div>
+        </div>
+        <div class="map-pin pin3">
+          <div class="pin-dot"></div>
+          <div class="pin-label">🐙 タコ ×3</div>
+        </div>
+        <div class="map-popup">
+          <div class="popup-title">📍 大阪南港 常夜灯下</div>
+          <div class="popup-fish">
+            <span class="badge">シーバス</span>
+            <span>今週 6匹 / AI確度 92%</span>
+          </div>
+          <div class="popup-fish">
+            <span class="badge">チヌ</span>
+            <span>今週 3匹 / AI確度 78%</span>
+          </div>
+        </div>
+        <div class="map-toggle">
+          <button class="toggle-btn active">AIヒートマップ</button>
+          <button class="toggle-btn">実釣果</button>
+          <button class="toggle-btn">釣具店</button>
+        </div>
+        <div class="map-filters">
+          <span class="filter-chip active">今日</span>
+          <span class="filter-chip">月間</span>
+          <span class="filter-chip">3ヶ月</span>
+          <span class="filter-chip">累積</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- features -->
+    <div class="map-features">
+      <div class="feat-item">
+        <div class="feat-icon teal">🌊</div>
+        <div>
+          <div class="feat-title">AIヒートマップ（予測）</div>
+          <div class="feat-desc">潮汐・地形・常夜灯・水温・風速をリアルタイム解析。今日のベストポイントを確率で表示。</div>
+        </div>
+      </div>
+      <div class="feat-item">
+        <div class="feat-icon amber">📊</div>
+        <div>
+          <div class="feat-title">釣果ヒートマップ（実績）</div>
+          <div class="feat-desc">ユーザーの実釣果データを集積。古いデータは薄く表示し、情報の鮮度を視覚化。</div>
+        </div>
+      </div>
+      <div class="feat-item">
+        <div class="feat-icon teal">🗺️</div>
+        <div>
+          <div class="feat-title">遊漁船の航路表示</div>
+          <div class="feat-desc">出船ポイント→沖磯への航路を地図上に表示。どの沖磯に渡れるか一目でわかる。</div>
+        </div>
+      </div>
+      <div class="feat-item">
+        <div class="feat-icon amber">🏪</div>
+        <div>
+          <div class="feat-title">近くの釣具店マップ</div>
+          <div class="feat-desc">現在地付近の釣具店を表示。在庫情報・口コミ・行き方をワンタップで確認。</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FEATURES GRID -->
+<section class="features-section">
+  <div class="features-inner">
+    <div class="features-header reveal">
+      <p class="section-label">All Features</p>
+      <h2 class="section-title">釣りに必要なすべてが<br>ここにある</h2>
+    </div>
+    <div class="features-grid reveal">
+      <div class="feature-card">
+        <div class="card-icon">🎣</div>
+        <div class="card-title">釣果投稿 & SNS</div>
+        <div class="card-desc">写真・魚種・サイズ・ルアー・タックルを投稿。非公開でもカウントはマップに反映。ポイント制でランキング競争。</div>
+        <span class="card-tag">SNS</span>
+      </div>
+      <div class="feature-card">
+        <div class="card-icon">🤖</div>
+        <div class="card-title">論文ベースAI予測</div>
+        <div class="card-desc">魚の視覚特性（色覚・偏光・UV感知）を論文から実装。ベイトサイズ×水温からルアーサイズを自動提案。</div>
+        <span class="card-tag">AI</span>
+      </div>
+      <div class="feature-card">
+        <div class="card-icon">🚢</div>
+        <div class="card-title">遊漁船比較・予約</div>
+        <div class="card-desc">全国遊漁船データベース。エリア×魚種×価格で即比較。予約手数料5〜10%のマーケットプレイス。</div>
+        <span class="card-tag amber">予約</span>
+      </div>
+      <div class="feature-card">
+        <div class="card-icon">🎯</div>
+        <div class="card-title">ルアー・タックル提案</div>
+        <div class="card-desc">ポイントごとに最適ルアーを理由付きで提案。YouTube動画リンク付き。Amazon/楽天アフィリリンク自動付与。</div>
+        <span class="card-tag">提案</span>
+      </div>
+      <div class="feature-card">
+        <div class="card-icon">📝</div>
+        <div class="card-title">釣りブログ自動生成</div>
+        <div class="card-desc">毎日の条件から「今日釣れる理由」記事を自動生成。SEOで釣り人を獲得してアプリに誘導。</div>
+        <span class="card-tag">SEO</span>
+      </div>
+      <div class="feature-card">
+        <div class="card-icon">💰</div>
+        <div class="card-title">投稿者に還元</div>
+        <div class="card-desc">釣果写真にタックルタグ→アフィリリンク自動付与。自分の投稿経由でルアーが売れたら投稿者にも報酬。</div>
+        <span class="card-tag amber">収益</span>
+      </div>
+      <div class="feature-card">
+        <div class="card-icon">🔒</div>
+        <div class="card-title">場所の公開設定（3段階）</div>
+        <div class="card-desc">ポイントを晒したくない釣り師のために3段階プライバシー設定。非公開でもヒートマップ・カウントには匿名で反映され、みんなのデータに貢献できる。</div>
+        <span class="card-tag">プライバシー</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- PRIVACY SECTION -->
+<section id="privacy" class="privacy-section reveal">
+  <div class="privacy-inner">
+    <div class="privacy-header">
+      <p class="section-label">Location Privacy</p>
+      <h2 class="section-title">ポイントは晒さなくていい。<br>でもデータは貢献できる。</h2>
+      <p class="section-desc" style="margin: 16px auto 0; max-width: 560px; text-align: center;">
+        釣り師の最大の悩み「ポイントを教えたくない」を解決する3段階プライバシー設定。非公開でも匿名カウントとしてヒートマップに反映されるため、コミュニティのデータ精度を落とさない。
+      </p>
+    </div>
+    <div class="privacy-cards">
+      <div class="privacy-card">
+        <div class="privacy-icon public">📍</div>
+        <div class="privacy-level">正確公開</div>
+        <div class="privacy-map-demo exact">
+          <div class="demo-pin exact-pin"></div>
+          <div class="demo-ripple"></div>
+        </div>
+        <div class="privacy-title">座標そのまま公開</div>
+        <div class="privacy-desc">
+          投稿した正確な釣り座の座標をほかのユーザーにも公開。マップ上にピンが立つ。釣り場の情報共有を積極的に行いたい人向け。ポイントバッジ獲得加算 <strong>×2</strong>。
+        </div>
+        <div class="privacy-tags">
+          <span class="ptag">マップにピン表示</span>
+          <span class="ptag">ポイント×2</span>
+        </div>
+      </div>
+
+      <div class="privacy-card featured-privacy">
+        <div class="privacy-badge-top">デフォルト設定</div>
+        <div class="privacy-icon area">🌀</div>
+        <div class="privacy-level area-level">エリア公開</div>
+        <div class="privacy-map-demo area-demo">
+          <div class="demo-blur-circle"></div>
+          <div class="demo-pin area-pin"></div>
+        </div>
+        <div class="privacy-title">半径500m〜1kmでぼかして公開</div>
+        <div class="privacy-desc">
+          正確な座標ではなく、半径500m〜1kmの円でぼかした位置を公開。「このエリア付近」という情報は共有しつつ、ピンポイントのポイントは守れる。
+        </div>
+        <div class="privacy-tags">
+          <span class="ptag area-tag">円形エリアで表示</span>
+          <span class="ptag area-tag">ぼかし半径を選択可</span>
+        </div>
+      </div>
+
+      <div class="privacy-card">
+        <div class="privacy-icon private">🔐</div>
+        <div class="privacy-level private-level">完全非公開</div>
+        <div class="privacy-map-demo private-demo">
+          <div class="demo-heatmap-dot"></div>
+          <div class="demo-count-badge">+1</div>
+        </div>
+        <div class="privacy-title">自分のみ表示・でもデータは貢献</div>
+        <div class="privacy-desc">
+          ほかのユーザーには一切場所が見えない。ただし釣果カウント（シーバス×1）とヒートマップの強度には<strong>匿名で</strong>反映。秘境ポイントを守りながらコミュニティに貢献できる。
+        </div>
+        <div class="privacy-tags">
+          <span class="ptag private-tag">場所は非表示</span>
+          <span class="ptag private-tag">ヒートマップに匿名反映</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="privacy-note reveal">
+      <div class="pnote-icon">💡</div>
+      <div class="pnote-body">
+        <div class="pnote-title">投稿ごとに設定を変えられる</div>
+        <div class="pnote-desc">釣行ごと・ポイントごとに公開レベルを選択可能。「この場所は正確に公開・あの場所は非公開」という細かい管理ができる。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- AI SECTION -->
+<section id="ai" class="ai-section">
+  <div class="reveal">
+    <p class="section-label">AI Engine</p>
+    <h2 class="section-title">「なぜ今日ここで釣れるか」<br>理由まで教えるAI</h2>
+    <p class="section-desc">論文・正式データベースをルールベースに変換。シーバスは橋の明かりの影に潜む理由、チヌが底ベタにつく理由を魚の習性から説明。</p>
+  </div>
+  <div class="ai-layout">
+    <!-- phone mockup -->
+    <div class="phone-mock reveal">
+      <div class="phone-screen">
+        <div class="phone-header">
+          <div class="phone-title">今日のAIポイント提案</div>
+          <div class="phone-loc">📍 大阪 / 2026-06-03 19:30</div>
+        </div>
+        <div class="conditions-grid">
+          <div class="cond-item">
+            <div class="cond-label">潮位</div>
+            <div class="cond-val good">中潮↑ 上げ3分</div>
+          </div>
+          <div class="cond-item">
+            <div class="cond-label">水温</div>
+            <div class="cond-val good">19.2℃</div>
+          </div>
+          <div class="cond-item">
+            <div class="cond-label">風速</div>
+            <div class="cond-val mid">SW 3.2m</div>
+          </div>
+          <div class="cond-item">
+            <div class="cond-label">月齢</div>
+            <div class="cond-val">新月前2日</div>
+          </div>
+        </div>
+        <div class="ai-result">
+          <div class="ai-result-title">AIポイント提案</div>
+          <div class="ai-point">
+            <div class="ai-point-name">大阪南港 常夜灯下 A</div>
+            <div class="ai-point-reason">上げ潮＋常夜灯の光の境界線にベイトが集まりシーバスが待ち伏せ。水温19℃は活性最高域。</div>
+            <div class="ai-score">
+              <div class="score-bar"><div class="score-fill" style="width:92%"></div></div>
+              <span class="score-num">92%</span>
+            </div>
+          </div>
+          <div class="ai-point">
+            <div class="ai-point-name">〇〇橋 橋脚下流側</div>
+            <div class="ai-point-reason">橋脚が流れを分断してよどみを作りチヌのエサ場に。下流側は潮に向かって潜む習性あり。</div>
+            <div class="ai-score">
+              <div class="score-bar"><div class="score-fill" style="width:78%"></div></div>
+              <span class="score-num">78%</span>
+            </div>
+          </div>
+          <div class="lure-suggest">
+            <div class="lure-title">🎣 ルアー提案（水色：澄み / 常夜灯下）</div>
+            <div class="lure-item">
+              <div class="lure-dot"></div>
+              <div>
+                <div class="lure-name">IMAコモモ 125F — チャートバックパール</div>
+                <div class="lure-why">澄み潮×常夜灯→シルエット重視。125mmはベイト7〜8cmに対応。</div>
+              </div>
+            </div>
+            <div class="lure-item">
+              <div class="lure-dot"></div>
+              <div>
+                <div class="lure-name">シマノ エクスセンス 140F</div>
+                <div class="lure-why">イレギュラーパターン。バイトが止まったら試す。</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ai features list -->
+    <div class="ai-features reveal">
+      <div class="ai-feat">
+        <div class="ai-feat-num">01</div>
+        <div>
+          <div class="ai-feat-title">魚の視覚特性を論文ベースで実装</div>
+          <div class="ai-feat-desc">色覚・偏光感知・UV感知を論文データに基づいてルール化。水の色（濁り/澄み）×光量×季節からカラー提案を自動生成。</div>
+        </div>
+      </div>
+      <div class="ai-feat">
+        <div class="ai-feat-num">02</div>
+        <div>
+          <div class="ai-feat-title">ベイトサイズ×水温からルアーサイズ提案</div>
+          <div class="ai-feat-desc">季節と水温のマトリクスからベイトフィッシュのサイズを推定。マッチ・ザ・ベイト理論をAIが自動適用。</div>
+        </div>
+      </div>
+      <div class="ai-feat">
+        <div class="ai-feat-num">03</div>
+        <div>
+          <div class="ai-feat-title">小河川の水深も航空写真から推定</div>
+          <div class="ai-feat-desc">水深データがない小規模河川は航空写真＋ネット画像をAIで解析して水深・底質を推定。全国をカバー。</div>
+        </div>
+      </div>
+      <div class="ai-feat">
+        <div class="ai-feat-num">04</div>
+        <div>
+          <div class="ai-feat-title">イレギュラーパターンも提案</div>
+          <div class="ai-feat-desc">セオリー通りに釣れない条件下では、あえてセオリーを外したイレギュラーパターンを理由付きで提示。</div>
+        </div>
+      </div>
+      <div class="ai-feat">
+        <div class="ai-feat-num">05</div>
+        <div>
+          <div class="ai-feat-title">APIほぼゼロ設計・超低コスト運用</div>
+          <div class="ai-feat-desc">論文データをルールベースに変換済み。推論時はAPI不要。1ユーザーあたりのサーバーコストは月1〜2円。</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- BOAT SECTION -->
+<section id="boat" class="boat-section">
+  <div class="boat-inner">
+    <div class="boat-header reveal">
+      <p class="section-label">Fishing Boat Platform</p>
+      <h2 class="section-title">全国遊漁船を<br>一発で比較・予約</h2>
+      <p class="section-desc" style="margin:16px auto 0;max-width:560px">HPスクレイピングで自動収集した全国遊漁船データベース。エリア×魚種×価格でフィルタリング。</p>
+    </div>
+    <div class="boat-cards reveal">
+      <div class="boat-card">
+        <div class="boat-img">⚓</div>
+        <div class="boat-body">
+          <div class="boat-name">第八 海鷹丸（神津島）</div>
+          <div class="boat-meta">
+            <span class="boat-tag">クエ</span>
+            <span class="boat-tag">マダイ</span>
+            <span class="boat-tag">乗合</span>
+          </div>
+          <div class="boat-price">¥18,000〜</div>
+          <div class="boat-sub">出船 5:00 / 定員8名 / 年中無休</div>
+        </div>
+      </div>
+      <div class="boat-card">
+        <div class="boat-img">🎣</div>
+        <div class="boat-body">
+          <div class="boat-name">太公望丸（明石）</div>
+          <div class="boat-meta">
+            <span class="boat-tag">タコ</span>
+            <span class="boat-tag">タチウオ</span>
+            <span class="boat-tag">仕立</span>
+          </div>
+          <div class="boat-price">¥12,000〜</div>
+          <div class="boat-sub">出船 6:00 / 定員6名 / 要予約</div>
+        </div>
+      </div>
+      <div class="boat-card">
+        <div class="boat-img">🌊</div>
+        <div class="boat-body">
+          <div class="boat-name">海友丸（玄界灘）</div>
+          <div class="boat-meta">
+            <span class="boat-tag">ヒラマサ</span>
+            <span class="boat-tag">ブリ</span>
+            <span class="boat-tag">乗合</span>
+          </div>
+          <div class="boat-price">¥22,000〜</div>
+          <div class="boat-sub">出船 4:30 / 定員10名 / 4〜10月</div>
+        </div>
+      </div>
+    </div>
+    <div class="boat-compare reveal">
+      <div class="boat-compare-title">「神津島でクエが釣れる船を価格で比較したい」</div>
+      <div class="boat-compare-desc">エリア × 魚種 × 価格 × 出船時間 × 乗合/仕立てで横断検索。釣果写真の自動引用表示で実績がひと目でわかる。</div>
+    </div>
+  </div>
+</section>
+
+<!-- PRICING -->
+<section id="pricing" class="pricing-section">
+  <div class="pricing-header reveal">
+    <p class="section-label">Pricing</p>
+    <h2 class="section-title">まず無料で、本気になったら<br>月480円</h2>
+  </div>
+  <div class="pricing-grid reveal">
+    <!-- free -->
+    <div class="price-card">
+      <div class="price-name">FREE</div>
+      <div class="price-num">¥<span></span>0<span>/月</span></div>
+      <div class="price-sub">ずっと無料</div>
+      <ul class="price-features">
+        <li>基本マップ（過去30日データ）</li>
+        <li>釣果投稿・SNS機能</li>
+        <li>釣具店マップ</li>
+        <li>遊漁船検索・閲覧</li>
+        <li class="locked">AIポイント提案</li>
+        <li class="locked">詳細ルアー・カラー提案</li>
+        <li class="locked">過去1年データ閲覧</li>
+      </ul>
+      <a href="#" class="price-btn outline">無料で始める</a>
+    </div>
+    <!-- pro -->
+    <div class="price-card featured">
+      <div class="price-badge">おすすめ</div>
+      <div class="price-name">PRO MONTHLY</div>
+      <div class="price-num">¥<span></span>480<span>/月</span></div>
+      <div class="price-sub">いつでもキャンセル可</div>
+      <ul class="price-features">
+        <li>基本マップ（過去30日データ）</li>
+        <li>釣果投稿・SNS機能</li>
+        <li>釣具店マップ</li>
+        <li>遊漁船予約</li>
+        <li>AIポイント提案（論文ベース）</li>
+        <li>詳細ルアー・カラー提案</li>
+        <li>過去1年データ閲覧</li>
+      </ul>
+      <a href="#" class="price-btn filled">今すぐ始める</a>
+    </div>
+    <!-- annual -->
+    <div class="price-card">
+      <div class="price-name">PRO ANNUAL</div>
+      <div class="price-num">¥<span></span>3,980<span>/年</span></div>
+      <div class="price-sub">月換算 ¥332 — 約30%お得</div>
+      <ul class="price-features">
+        <li>Proプランの全機能</li>
+        <li>遊漁船予約 手数料 4% → 3%</li>
+        <li>アフィリエイト収益 +10%ボーナス</li>
+        <li>新機能への優先アクセス</li>
+        <li>年間釣行記録レポート自動生成</li>
+        <li>過去3年データ閲覧</li>
+        <li>過去3年データ閲覧</li>
+      </ul>
+      <a href="#" class="price-btn outline">年払いで申し込む</a>
+    </div>
+  </div>
+
+  <!-- revenue streams -->
+  <div class="reveal">
+    <p class="section-label" style="text-align:center">Revenue Model</p>
+    <h3 class="section-title" style="text-align:center;font-size:clamp(1.5rem,3vw,2.2rem);margin-bottom:32px">5本柱の収益設計</h3>
+    <div class="revenue-grid">
+      <div class="rev-item">
+        <div class="rev-icon">💳</div>
+        <div class="rev-name">月額・年額サブスク</div>
+        <div class="rev-desc">¥480/月 or ¥3,980/年。AI機能・過去データへのアクセス権。</div>
+      </div>
+      <div class="rev-item">
+        <div class="rev-icon">🛒</div>
+        <div class="rev-name">アフィリエイト</div>
+        <div class="rev-desc">Amazon/楽天でルアー・タックルが売れるたびに収益。投稿者にも還元。</div>
+      </div>
+      <div class="rev-item">
+        <div class="rev-icon">⚓</div>
+        <div class="rev-name">遊漁船予約手数料</div>
+        <div class="rev-desc">予約額の5〜10%。有料掲載プランで上位表示 ¥3,000〜5,000/月。</div>
+      </div>
+      <div class="rev-item">
+        <div class="rev-icon">📊</div>
+        <div class="rev-name">B2Bデータ販売</div>
+        <div class="rev-desc">ルアー反応データを釣具メーカー・釣具店に販売。新製品フィールドテスト依頼。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- TECH -->
+<section class="tech-section">
+  <div class="tech-inner reveal">
+    <p class="section-label">Tech Design</p>
+    <h2 class="section-title" style="font-size:clamp(1.8rem,4vw,3rem)">VPS運用・APIほぼゼロの<br>超低コスト設計</h2>
+    <p style="font-size:0.9rem;color:var(--gray);margin-top:12px;line-height:1.8">論文データを事前にルールベースに変換済み。推論時はAPIを呼ばない。ブログ自動生成のみターミナルで処理。</p>
+    <div class="tech-grid">
+      <div class="tech-item"><div class="tech-dot"></div>PWA (スマホ対応)</div>
+      <div class="tech-item"><div class="tech-dot"></div>VPS運用</div>
+      <div class="tech-item"><div class="tech-dot amber"></div>論文ルールベースエンジン</div>
+      <div class="tech-item"><div class="tech-dot"></div>地図API (Leaflet/OSM)</div>
+      <div class="tech-item"><div class="tech-dot amber"></div>遊漁船スクレイピング</div>
+      <div class="tech-item"><div class="tech-dot"></div>SEOブログ自動生成</div>
+      <div class="tech-item"><div class="tech-dot"></div>Stripe 決済</div>
+      <div class="tech-item"><div class="tech-dot amber"></div>Amazon/楽天 アフィリ API</div>
+    </div>
+    <div class="cost-box">
+      <div>
+        <div class="cost-label">1ユーザーあたり月間コスト</div>
+        <div class="cost-num">1〜2円</div>
+      </div>
+      <div style="width:1px;height:60px;background:rgba(0,201,177,0.2)"></div>
+      <div>
+        <div class="cost-label">月480円サブスクの粗利</div>
+        <div class="cost-num" style="color:var(--amber)">99%+</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="cta-section">
+  <div class="cta-inner reveal">
+    <h2 class="cta-title">今日の釣り場を、<br><span>AIに聞いてみよう。</span></h2>
+    <p class="cta-desc">潮・天気・水温・地形を論文ベースのAIが分析。「なぜここで釣れるか」を理由付きで教える。まずは無料で試してみて。</p>
+    <a href="#" class="btn-primary" style="font-size:1.1rem;padding:16px 48px">無料で始める</a>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <span class="logo">ANGLER'S<span style="color:var(--amber)">MAP</span></span>
+  <p>釣り特化総合プラットフォーム — AI釣りポイント予測 × 釣果投稿SNS × 遊漁船比較予約</p>
+  <p style="margin-top:8px;font-size:0.7rem;opacity:0.5">© 2026 Angler's Map. All rights reserved.</p>
+</footer>
+
+<script>
+  // scroll reveal
+  const observer = new IntersectionObserver(entries => {
+    entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible'); });
+  }, { threshold: 0.1 });
+  document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+
+  // map toggle buttons
+  document.querySelectorAll('.toggle-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      btn.closest('.map-toggle').querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    });
+  });
+
+  // filter chips
+  document.querySelectorAll('.filter-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      chip.closest('.map-filters').querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+    });
+  });
+</script>
+</body>
+</html>
