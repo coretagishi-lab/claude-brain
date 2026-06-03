@@ -474,6 +474,7 @@ const API = '';
 let map, myMarker, myLat, myLng, postLat, postLng;
 let catchMarkers=[], tackleMarkers=[], boatMarkers=[], anglerMarkers=[];
 let heatLayer=null;
+let canvasHeatLayer=null;
 let currentMode='catches', currentPeriod='all', filterSpecies='';
 let selectedPrivacy='area', selectedSpeciesForPost=null;
 let fishList=[];
@@ -589,6 +590,90 @@ function updateMyMarker(){
   map.setView([myLat,myLng],14);
 }
 
+// ── Canvas heatmap helpers ─────────────────────────────────────
+function removeCanvasHeat(){
+  if(canvasHeatLayer){canvasHeatLayer.remove();canvasHeatLayer=null;}
+}
+
+function scoreToRgb(score){
+  const t=Math.max(0,Math.min(1,score));
+  const stops=[[0,26,80,0],[0,80,200,130],[0,201,177,175],[245,166,35,205],[231,76,60,220],[180,30,20,235]];
+  const n=stops.length-1;
+  const i=Math.min(Math.floor(t*n),n-1);
+  const f=t*n-i;
+  const c0=stops[i],c1=stops[i+1];
+  return [
+    Math.round(c0[0]+(c1[0]-c0[0])*f),
+    Math.round(c0[1]+(c1[1]-c0[1])*f),
+    Math.round(c0[2]+(c1[2]-c0[2])*f),
+    Math.round(c0[3]+(c1[3]-c0[3])*f),
+  ];
+}
+
+function createCanvasHeatmap(map,points){
+  const pane=map.getPanes().overlayPane;
+  const canvas=document.createElement('canvas');
+  canvas.style.cssText='position:absolute;top:0;left:0;pointer-events:none;z-index:300;opacity:0;transition:opacity 0.5s';
+  pane.appendChild(canvas);
+
+  function redraw(){
+    const size=map.getSize();
+    canvas.width=size.x;
+    canvas.height=size.y;
+    const topLeft=map.containerPointToLayerPoint([0,0]);
+    L.DomUtil.setPosition(canvas,topLeft);
+    const ctx=canvas.getContext('2d');
+    ctx.clearRect(0,0,size.x,size.y);
+    const zoom=map.getZoom();
+    const radius=Math.max(30,Math.min(80,zoom*5.5-20));
+    points.forEach(({lat,lng,score})=>{
+      try{
+        const pt=map.latLngToContainerPoint(L.latLng(lat,lng));
+        if(pt.x<-radius||pt.x>size.x+radius||pt.y<-radius||pt.y>size.y+radius) return;
+        const [r,g,b,a]=scoreToRgb(score);
+        const al=a/255;
+        const grad=ctx.createRadialGradient(pt.x,pt.y,0,pt.x,pt.y,radius);
+        grad.addColorStop(0,`rgba(${r},${g},${b},${al})`);
+        grad.addColorStop(0.45,`rgba(${r},${g},${b},${(al*0.55).toFixed(3)})`);
+        grad.addColorStop(1,'rgba(0,0,0,0)');
+        ctx.fillStyle=grad;
+        ctx.beginPath();
+        ctx.arc(pt.x,pt.y,radius,0,Math.PI*2);
+        ctx.fill();
+      }catch(e){}
+    });
+    canvas.style.opacity='0.65';
+  }
+
+  redraw();
+  map.on('moveend zoomend',redraw);
+  return {remove(){canvas.remove();map.off('moveend zoomend',redraw);}};
+}
+
+// ── Opening hours 日本語化 ─────────────────────────────────────
+function _fmtHours(h){
+  if(!h) return '営業時間不明';
+  return h
+    .replace(/\bMo\b/g,'月').replace(/\bTu\b/g,'火').replace(/\bWe\b/g,'水')
+    .replace(/\bTh\b/g,'木').replace(/\bFr\b/g,'金').replace(/\bSa\b/g,'土')
+    .replace(/\bSu\b/g,'日').replace(/\boff\b/g,'休').replace(/\bPH\b/g,'祝')
+    .replace(/\bopen\b/g,'営業中').replace(/\bclosed\b/g,'閉');
+}
+
+// ── Overpass query (fallback server付き) ──────────────────────
+async function _overpassFetch(query){
+  for(const base of ['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter']){
+    try{
+      const ctrl=new AbortController();
+      const tid=setTimeout(()=>ctrl.abort(),18000);
+      const r=await fetch(`${base}?data=${encodeURIComponent(query)}`,{signal:ctrl.signal});
+      clearTimeout(tid);
+      if(r.ok) return await r.json();
+    }catch(e){}
+  }
+  return {elements:[]};
+}
+
 // ── Clear layers ──────────────────────────────────────────────
 function clearAllLayers(){
   catchMarkers.forEach(m=>map.removeLayer(m)); catchMarkers=[];
@@ -596,6 +681,8 @@ function clearAllLayers(){
   boatMarkers.forEach(m=>map.removeLayer(m)); boatMarkers=[];
   anglerMarkers.forEach(m=>map.removeLayer(m)); anglerMarkers=[];
   if(heatLayer){map.removeLayer(heatLayer);heatLayer=null;}
+  removeCanvasHeat();
+  clearEcologyCard();
 }
 
 async function refreshMap(){
@@ -642,17 +729,17 @@ function addCatchPin(c){
   catchMarkers.push(m);
 }
 
-// ── Heatmap ───────────────────────────────────────────────────
+// ── Heatmap (Canvas直接描画) ──────────────────────────────────
 async function renderHeatmap(){
   showToast('🌡 ヒートマップ計算中...');
+  removeCanvasHeat();
   try{
+    const lat=myLat||map.getCenter().lat;
+    const lng=myLng||map.getCenter().lng;
+    const sp=filterSpecies||'シーバス';
     const q=new URLSearchParams();
     if(currentPeriod!=='all') q.set('period',currentPeriod);
     if(filterSpecies) q.set('species',filterSpecies);
-    const sp=filterSpecies||'シーバス';
-    // myLatが未取得でもmap.getCenter()でフォールバック
-    const lat=myLat||map.getCenter().lat;
-    const lng=myLng||map.getCenter().lng;
     const [catchData,ecoData]=await Promise.all([
       fetch(`${API}/api/heatmap?${q}`).then(r=>r.json()).catch(()=>[]),
       fetch(`${API}/api/ecological-heatmap?lat=${lat}&lng=${lng}&species=${encodeURIComponent(sp)}&radius=20`)
@@ -661,34 +748,29 @@ async function renderHeatmap(){
     const pts=[];
     if(ecoData&&ecoData.points&&ecoData.points.length){
       const eMax=Math.max(...ecoData.points.map(p=>p.score),0.01);
-      ecoData.points.forEach(p=>pts.push([p.lat,p.lng,p.score/eMax*0.6]));
-      showEcologyCard(ecoData);
+      ecoData.points.forEach(p=>pts.push({lat:p.lat,lng:p.lng,score:p.score/eMax}));
+      // 生態カードは表示しない（魚種フィルターのみ）
     }
     if(catchData&&catchData.length){
       const cMax=Math.max(...catchData.map(d=>d.count),1);
-      catchData.forEach(d=>pts.push([d.grid_lat,d.grid_lng,d.count/cMax]));
+      catchData.forEach(d=>pts.push({lat:d.grid_lat,lng:d.grid_lng,score:d.count/cMax}));
     }
-    if(!pts.length){showToast('ヒートマップデータなし（エリアを移動してみてください）');return;}
-    const zoom=map.getZoom();
-    const radius=Math.max(20,Math.min(55,zoom*4-15));
-    heatLayer=L.heatLayer(pts,{radius,blur:radius*0.7,maxZoom:18,max:1.0,
-      gradient:{0.0:'#001a33',0.3:'#003d6e',0.55:'#00c9b1',0.75:'#f5a623',0.9:'#e74c3c',1:'#c0392b'}
-    }).addTo(map);
+    if(!pts.length){showToast('ヒートマップデータなし');return;}
+    canvasHeatLayer=createCanvasHeatmap(map,pts);
     const info=catchData&&catchData.length?`釣果${catchData.length}件+`:'';
     showToast(`🌡 ${info}生態AI: ${sp} (${pts.length}pt)`);
-  }catch(e){console.error('heatmap error:',e);showToast('ヒートマップ取得失敗','error');}
+  }catch(e){console.error('heatmap:',e);showToast('ヒートマップ取得失敗','error');}
 }
 
 // ── Tackle shops ──────────────────────────────────────────────
 async function loadTackleShops(){
-  showToast('釣具店を検索中...');
+  showToast('🎣 釣具店を検索中...');
   const b=map.getBounds();
-  // 検索範囲を少し広げる
-  const pad=0.1;
+  const pad=0.15;
   const bbox=`${b.getSouth()-pad},${b.getWest()-pad},${b.getNorth()+pad},${b.getEast()+pad}`;
-  const query=`[out:json][timeout:30];(node["shop"="fishing"](${bbox});node["shop"="tackle"](${bbox});node["shop"="fishing_tackle"](${bbox});node["shop"="sports"]["sport"="fishing"](${bbox});node["name"~"上州屋|タックルベリー|キャスティング|フィッシング|つり具|釣具|つり|アングラーズ|ポイント",i](${bbox});way["shop"="fishing"](${bbox});way["shop"="tackle"](${bbox});way["name"~"上州屋|タックルベリー|キャスティング|フィッシング|つり具|釣具",i](${bbox});relation["shop"="fishing"](${bbox}););out center;`;
+  const query=`[out:json][timeout:25];(node["shop"="fishing"](${bbox});node["shop"="tackle"](${bbox});node["shop"="fishing_tackle"](${bbox});node["shop"="sports"]["sport"="fishing"](${bbox});node["shop"]["name"~"上州屋|タックルベリー|キャスティング|フィッシングポイント|つり具|釣具",i](${bbox});way["shop"="fishing"](${bbox});way["shop"="tackle"](${bbox});way["shop"]["name"~"上州屋|タックルベリー|キャスティング",i](${bbox}););out center;`;
   try{
-    const data=await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`).then(r=>r.json());
+    const data=await _overpassFetch(query);
     data.elements.forEach(el=>{
       const lat=el.lat??el.center?.lat; const lng=el.lon??el.center?.lon;
       if(!lat||!lng) return;
@@ -697,12 +779,12 @@ async function loadTackleShops(){
       const icon=L.divIcon({className:'',html:`<div style="font-size:1.8rem;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.7))">🎣</div>`,iconSize:[28,28],iconAnchor:[14,14]});
       const m=L.marker([lat,lng],{icon}).addTo(map);
       if(name) m.bindTooltip(name,{permanent:true,className:'tackle-label',offset:[16,-10],direction:'right'});
-      const hours=el.tags?.opening_hours||'営業時間不明';
-      m.bindPopup(`<div style="min-width:160px"><div style="font-weight:700;margin-bottom:6px;font-size:0.9rem;color:var(--white)">🎣 ${displayName}</div><div style="font-size:0.72rem;color:var(--teal);margin-bottom:4px">🕐 ${hours}</div>${el.tags?.phone?`<div style="font-size:0.72rem;color:var(--gray)">📞 ${el.tags.phone}</div>`:''}<div style="font-size:0.72rem;color:var(--gray)">${el.tags?.addr_detail||''}</div>${el.tags?.website?`<div style="font-size:0.72rem;margin-top:4px"><a href="${el.tags.website}" target="_blank" style="color:#4f9eff">🌐 ウェブサイト</a></div>`:''}</div>`);
+      const hours=_fmtHours(el.tags?.opening_hours);
+      m.bindPopup(`<div style="min-width:165px"><div style="font-weight:700;margin-bottom:6px;font-size:0.9rem;color:var(--white)">🎣 ${displayName}</div><div style="font-size:0.72rem;color:var(--teal);margin-bottom:4px">🕐 ${hours}</div>${el.tags?.phone?`<div style="font-size:0.72rem;color:var(--gray)">📞 ${el.tags.phone}</div>`:''}${el.tags?.website?`<div style="font-size:0.72rem;margin-top:4px"><a href="${el.tags.website}" target="_blank" style="color:#4f9eff">🌐 ウェブサイト</a></div>`:''}</div>`);
       tackleMarkers.push(m);
     });
-    showToast(tackleMarkers.length>0?`釣具店 ${tackleMarkers.length}件`:'この範囲に釣具店データなし。範囲を広げてみてください。');
-  }catch(e){showToast('釣具店データ取得失敗','error');}
+    showToast(tackleMarkers.length>0?`釣具店 ${tackleMarkers.length}件`:'この範囲に釣具店データなし');
+  }catch(e){console.error(e);showToast('釣具店データ取得失敗','error');}
 }
 
 // ── Fishing boats (red glow dots) ────────────────────────────
