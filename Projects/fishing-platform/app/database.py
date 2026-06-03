@@ -626,7 +626,7 @@ def _overpass_fetch_osm(query: str) -> dict:
     return {"elements": []}
 
 def _get_water_features(lat: float, lng: float, radius_km: float = 15) -> list:
-    """OSMから水辺・構造物フィーチャーを取得（TTLキャッシュ付き）。"""
+    """OSMから水辺ライン座標を取得（out geom で実際の輪郭/ライン）。TTLキャッシュ付き。"""
     bucket = f"{round(lat*5)/5:.1f},{round(lng*5)/5:.1f},{int(radius_km)}"
     now = _time.time()
     if bucket in _water_feat_cache:
@@ -638,50 +638,70 @@ def _get_water_features(lat: float, lng: float, radius_km: float = 15) -> list:
     r_lng = radius_km / (111.0 * max(0.01, math.cos(math.radians(lat))))
     bbox = f"{lat-r_lat:.5f},{lng-r_lng:.5f},{lat+r_lat:.5f},{lng+r_lng:.5f}"
 
+    # out geom; で各wayの実際の座標列を取得（中心点ではなくライン形状）
     query = (
-        f"[out:json][timeout:25];\n("
+        f"[out:json][timeout:28];\n("
         f'way["natural"="water"]({bbox});'
         f'way["waterway"~"river|stream|canal|ditch"]({bbox});'
-        f'relation["natural"="water"]({bbox});'
-        f'way["natural"~"coastline|bay|sea"]({bbox});'
+        f'way["natural"="coastline"]({bbox});'
         f'node["leisure"="fishing"]({bbox});'
         f'node["man_made"~"pier|breakwater|groyne"]({bbox});'
         f'way["man_made"~"pier|breakwater|groyne"]({bbox});'
         f'way["bridge"="yes"]({bbox});'
         f'node["highway"="street_lamp"]({bbox});'
-        f");\nout center;"
+        f");\nout geom;"   # ← centerではなく実座標
     )
 
     raw = _overpass_fetch_osm(query)
 
     type_map = {
-        "natural":   {"water":"water","bay":"water","sea":"water","coastline":"coastline"},
-        "waterway":  {"river":"river","stream":"river","canal":"canal","ditch":"canal"},
-        "leisure":   {"fishing":"fishing"},
-        "man_made":  {"pier":"pier","breakwater":"breakwater","groyne":"breakwater"},
-        "bridge":    {"yes":"bridge"},
-        "highway":   {"street_lamp":"light"},
+        "natural":  {"water":"water","coastline":"coastline"},
+        "waterway": {"river":"river","stream":"river","canal":"canal","ditch":"canal"},
+        "leisure":  {"fishing":"fishing"},
+        "man_made": {"pier":"pier","breakwater":"breakwater","groyne":"breakwater"},
+        "bridge":   {"yes":"bridge"},
+        "highway":  {"street_lamp":"light"},
     }
+    # 各タイプの最大ノード数（合計が多くなりすぎないよう制限）
+    CAPS = {"water":600,"coastline":400,"river":400,"canal":300,
+            "bridge":120,"pier":120,"breakwater":120,"fishing":80,"light":200}
 
     feats: list = []
     counts: dict = {}
-    CAPS = {"light":200,"water":150,"river":150,"canal":100,"bridge":80,"pier":80,"breakwater":80,"fishing":80,"coastline":100}
 
     for el in raw.get("elements", []):
-        la = el.get("lat") or (el.get("center") or {}).get("lat")
-        lo = el.get("lon") or (el.get("center") or {}).get("lon")
-        if not la or not lo:
-            continue
         tags = el.get("tags", {})
         ftype = None
         for tk, tv_map in type_map.items():
-            tv = tags.get(tk, "")
-            if tv in tv_map:
-                ftype = tv_map[tv]
+            if tags.get(tk, "") in tv_map:
+                ftype = tv_map[tags[tk]]
                 break
-        if ftype and counts.get(ftype, 0) < CAPS.get(ftype, 100):
-            feats.append({"lat": float(la), "lng": float(lo), "type": ftype})
-            counts[ftype] = counts.get(ftype, 0) + 1
+        if not ftype:
+            continue
+
+        cap = CAPS.get(ftype, 100)
+        geom = el.get("geometry")  # way の場合は座標列
+
+        if geom:
+            # way: 実際の輪郭ノードをサブサンプリング
+            # 最大40ノード/way を目安に間引く
+            step = max(1, len(geom) // 40)
+            nodes = geom[::step]
+            # 最後のノードも必ず含める（輪郭を閉じる）
+            if geom[-1] not in nodes:
+                nodes.append(geom[-1])
+            for nd in nodes:
+                la, lo = nd.get("lat"), nd.get("lon")
+                if la and lo and counts.get(ftype, 0) < cap:
+                    feats.append({"lat": float(la), "lng": float(lo), "type": ftype})
+                    counts[ftype] = counts.get(ftype, 0) + 1
+        else:
+            # node: そのまま使用
+            la = el.get("lat")
+            lo = el.get("lon")
+            if la and lo and counts.get(ftype, 0) < cap:
+                feats.append({"lat": float(la), "lng": float(lo), "type": ftype})
+                counts[ftype] = counts.get(ftype, 0) + 1
 
     _water_feat_cache[bucket] = (now, feats)
     return feats
@@ -692,54 +712,50 @@ def _dist_km(la1: float, lo1: float, la2: float, lo2: float) -> float:
 
 def _score_near_water(g_lat: float, g_lng: float, species: str,
                       features: list, env: dict) -> float:
-    """水辺グリッドポイントのスコア計算（0-100）。水辺でなければ0。"""
-    WATER_TYPES = {"water", "coastline", "river", "canal", "fishing", "pier", "breakwater", "bridge"}
-    WATER_RANGE  = 0.7   # km: この範囲内なら「水辺」と判定
+    """水辺グリッドポイントのスコア計算。水辺ラインから150m超は0。"""
+    WATER_TYPES = {"water","coastline","river","canal","fishing","pier","breakwater","bridge"}
+    WATER_RANGE = 0.15   # km = 150m（out geomで実ラインを使うので狭く設定）
 
     min_w = min(
         (_dist_km(g_lat, g_lng, f["lat"], f["lng"]) for f in features if f["type"] in WATER_TYPES),
         default=9999.0
     )
     if min_w > WATER_RANGE:
-        return 0.0
+        return 0.0   # 水辺150m超 → 陸地として除外
 
-    # 基礎スコア（水辺密着度）
     score = max(0.0, 40.0 * (1.0 - min_w / WATER_RANGE))
 
-    eco   = SPECIES_ECOLOGY.get(species, {})
-    temp  = env.get("sea_temp", 18.0)
-    tide  = env.get("tide_current", "")
+    eco  = SPECIES_ECOLOGY.get(species, {})
+    temp = env.get("sea_temp", 18.0)
+    tide = env.get("tide_current", "")
 
-    # 水温ボーナス
-    t_lo, t_hi   = eco.get("temp_range", (10, 28))
+    t_lo, t_hi     = eco.get("temp_range", (10, 28))
     t_pk_lo, t_pk_hi = eco.get("temp_peak", (15, 25))
     if t_lo <= temp <= t_hi:
         score += 20 if (t_pk_lo <= temp <= t_pk_hi) else 10
 
-    # 潮汐ボーナス
     tp = eco.get("tide_pref", "any")
     if   tp == "rising"  and "上げ" in tide: score += 20
     elif tp == "falling" and "下げ" in tide: score += 20
     elif tp == "any":                         score += 8
 
-    # 魚種別・構造物ボーナス
     for f in features:
         d  = _dist_km(g_lat, g_lng, f["lat"], f["lng"])
         ft = f["type"]
         if   species == "シーバス":
-            if   ft == "bridge"             and d < 0.15: score += 40 * (1 - d/0.15)
-            elif ft == "light"              and d < 0.05: score += 15 * (1 - d/0.05)
-            elif ft in ("river","canal")    and d < 0.10: score += 35 * (1 - d/0.10)
+            if   ft == "bridge"               and d < 0.15: score += 40 * (1 - d/0.15)
+            elif ft == "light"                and d < 0.05: score += 15 * (1 - d/0.05)
+            elif ft in ("river","canal")      and d < 0.10: score += 35 * (1 - d/0.10)
         elif species == "チヌ":
-            if   ft in ("breakwater","pier") and d < 0.12: score += 40 * (1 - d/0.12)
+            if   ft in ("breakwater","pier")  and d < 0.12: score += 40 * (1 - d/0.12)
             if "下げ" in tide: score += 5
         elif species in ("アジ","メバル"):
-            if   ft == "light"              and d < 0.05: score += 45 * (1 - d/0.05)
-            elif ft in ("pier","fishing")   and d < 0.20: score += 25 * (1 - d/0.20)
+            if   ft == "light"                and d < 0.05: score += 45 * (1 - d/0.05)
+            elif ft in ("pier","fishing")     and d < 0.20: score += 25 * (1 - d/0.20)
         elif species == "根魚":
-            if   ft in ("breakwater","pier") and d < 0.10: score += 45 * (1 - d/0.10)
+            if   ft in ("breakwater","pier")  and d < 0.10: score += 45 * (1 - d/0.10)
         elif species == "ヒラメ":
-            if   ft in ("river","canal")    and d < 0.15: score += 30 * (1 - d/0.15)
+            if   ft in ("river","canal")      and d < 0.15: score += 30 * (1 - d/0.15)
 
     return min(100.0, score)
 
