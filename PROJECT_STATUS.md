@@ -14,12 +14,14 @@ vault_version: 4.1
 
 | project_name | current_status | priority | review_waiting | due_date | updated_at |
 |---|---|---|---|---|---|
-| dmm-manga-affiliate | active | high | false | — | 2026-05-22 |
-| Manga-Ads | active | high | false | — | 2026-05-21 |
-| AI-Girls | idle | medium | false | — | 2026-05-21 |
-| Anglers-TCG | idle | medium | false | — | 2026-05-21 |
-| Recruitment-LP | idle | medium | false | — | 2026-05-21 |
-| AI-Automation | idle | medium | false | — | 2026-05-21 |
+| dmm-manga-affiliate | active | high | false | — | 2026-06-03 |
+| ai-idol | idle | medium | false | — | 2026-06-03 |
+| golf | idle | medium | false | — | 2026-06-03 |
+| salon | idle | medium | false | — | 2026-06-03 |
+| travel | idle | medium | false | — | 2026-06-03 |
+| idol-tcg | idle | medium | false | — | 2026-06-03 |
+| ai-marketplace | idle | medium | false | — | 2026-06-03 |
+| shoumouhin-tcg | idle | medium | false | — | 2026-06-03 |
 
 ## Session History
 

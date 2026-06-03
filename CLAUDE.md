@@ -237,6 +237,21 @@ Googleドライブの画像は非公開のため、Canvaに直接URLを渡せな
 
 ---
 
+## 全プロジェクト一覧（2026-06-03更新）
+
+| slug | 事業名 | ステータス | 優先度 | 概要 |
+|---|---|---|---|---|
+| `dmm-manga-affiliate` | DMMマンガアフィリエイト | active | high | 漫画コマ画像→YouTube Shorts自動制作・4アカウント×4バリエーション投稿 |
+| `ai-idol` | AIアイドル | idle | medium | セミリアルAIアイドル5人をSNS自動投稿・トレカ事業のサンプルを兼ねる |
+| `golf` | SwingAI | idle | medium | ゴルフスイング分析AIアプリ・個人向け＋B2B（打ちっぱなし施設）・アフィリエイト収益 |
+| `salon` | サロン経営右腕AI | idle | medium | マツエク等個人サロン向けオールインワンツール・売却ゴール（LiME・かんざし等） |
+| `travel` | Triply | idle | medium | 旅行プランAI・3プラン提案→ワンタップ予約・PWA＋アフィリエイト収益 |
+| `idol-tcg` | アイドルトレカ | idle | medium | アイドル・コスプレイヤー向けトレカ制作・販売・タレントは写真提供のみ |
+| `ai-marketplace` | AIマーケットプレイス | idle | medium | 育てたAIを売買できるマーケット（AI版App Store）・Stripe Connect収益分配 |
+| `shoumouhin-tcg` | 消耗品トレカ | idle | medium | コーヒー・茶・酒の体験をトレカ化するコレクションプラットフォーム |
+
+---
+
 ## セッション開始 — 事前チェック（Step 1〜4 の前に必ず実行）
 
 ### チェック① VPS 待機タスク確認

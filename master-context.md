@@ -193,16 +193,18 @@ VPS即実行             Notionキューに登録
 
 ## 5. 各サービスの現状と優先順位
 
-### プロジェクト一覧（2026-06-01時点）
+### プロジェクト一覧（2026-06-03更新）
 
-| プロジェクト | ステータス | 優先度 | 状況 |
-|---|---|---|---|
-| dmm-manga-affiliate | active | high | 動画パイプラインv2完成・Canva連携設計確定 |
-| Manga-Ads | active | high | 進行中 |
-| AI-Girls | idle | medium | 未着手 |
-| Anglers-TCG | idle | medium | 未着手 |
-| Recruitment-LP | idle | medium | 未着手 |
-| AI-Automation | idle | medium | 未着手 |
+| slug | 事業名 | ステータス | 優先度 | 状況 |
+|---|---|---|---|---|
+| dmm-manga-affiliate | DMMマンガアフィリエイト | active | high | 4アカウント×4バリエーション戦略確定・競合分析自動化実装済み |
+| ai-idol | AIアイドル | idle | medium | キャラクター設計・Stable Diffusion+LoRAスタック確定 |
+| golf | SwingAI | idle | medium | LPモックアップ完成・アフィリエイト収益モデル確定 |
+| salon | サロン経営右腕AI | idle | medium | 引き継ぎメモv5完成・MVP機能6つ確定・売却戦略確定 |
+| travel | Triply | idle | medium | tripplan-mvp.html完成・PWA化待ち |
+| idol-tcg | アイドルトレカ | idle | medium | ビジネスモデル確定・版権グレー戦略・ai-idolと連携 |
+| ai-marketplace | AIマーケットプレイス | idle | medium | ビジネスモデル確定・Phase1〜3ロードマップ設計済み |
+| shoumouhin-tcg | 消耗品トレカ | idle | medium | 手作りカード9枚存在・Webアプリ化待ち |
 
 ### MCP統合（確認済み）
 
