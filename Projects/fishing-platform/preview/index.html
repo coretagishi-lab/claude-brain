@@ -233,6 +233,17 @@
     border-radius:4px; padding:2px 7px; font-size:0.65rem; color:var(--teal);
   }
   .popup-fish span { font-size:0.7rem; color:var(--text); }
+  .popup-nav-btns { display:flex; gap:5px; margin-top:8px; }
+  .nav-btn {
+    display:flex; align-items:center; gap:4px;
+    padding:5px 8px; border-radius:5px; font-size:0.6rem; font-weight:700;
+    text-decoration:none; flex:1; justify-content:center;
+    transition: opacity .15s;
+  }
+  .nav-btn:hover { opacity:.85; }
+  .nav-btn.google { background:rgba(66,133,244,0.2); border:1px solid rgba(66,133,244,0.4); color:#6fa8f5; }
+  .nav-btn.apple  { background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.2); color:#ccc; }
+  .nav-icon { font-size:0.7rem; }
   /* toggle buttons */
   .map-toggle {
     position: absolute; top: 12px; left: 12px;
@@ -779,6 +790,14 @@
             <span class="badge">チヌ</span>
             <span>今週 3匹 / AI確度 78%</span>
           </div>
+          <div class="popup-nav-btns">
+            <a class="nav-btn google" href="https://www.google.com/maps/dir/?api=1&destination=34.6175,135.4646" target="_blank">
+              <span class="nav-icon">🗺</span> Googleマップ
+            </a>
+            <a class="nav-btn apple" href="http://maps.apple.com/?daddr=34.6175,135.4646" target="_blank">
+              <span class="nav-icon">🍎</span> Appleマップ
+            </a>
+          </div>
         </div>
         <div class="map-toggle">
           <button class="toggle-btn active">AIヒートマップ</button>
@@ -877,6 +896,12 @@
         <div class="card-title">場所の公開設定（3段階）</div>
         <div class="card-desc">ポイントを晒したくない釣り師のために3段階プライバシー設定。非公開でもヒートマップ・カウントには匿名で反映され、みんなのデータに貢献できる。</div>
         <span class="card-tag">プライバシー</span>
+      </div>
+      <div class="feature-card">
+        <div class="card-icon">🧭</div>
+        <div class="card-title">ワンタップで道案内</div>
+        <div class="card-desc">マップ上のポイントをタップするとGoogle マップ・Apple マップを選択して即座に道案内開始。知らない場所でも迷わず釣り場にたどり着ける。</div>
+        <span class="card-tag">ナビ</span>
       </div>
     </div>
   </div>
