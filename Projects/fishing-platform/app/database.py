@@ -760,13 +760,27 @@ def _score_near_water(g_lat: float, g_lng: float, species: str,
     return min(100.0, score)
 
 def get_water_heatmap(lat: float, lng: float, species: str = "シーバス", radius_km: float = 15) -> dict:
-    """水辺限定ヒートマップ生成。水辺フィーチャー取得→グリッドスコアリング→返却。"""
+    """水辺限定ヒートマップ。グリッド細分化+バケット空間インデックスで高速化。"""
     env      = _get_env_data(lat, lng)
     features = _get_water_features(lat, lng, radius_km)
 
-    lat_step = 0.01
+    WATER_RANGE = 0.20   # km = 200m（out geom実ラインを使うので適切な幅）
+    WATER_TYPES = {"water","coastline","river","canal","fishing","pier","breakwater","bridge"}
+    water_feats = [f for f in features if f["type"] in WATER_TYPES]
+
+    # ─ 空間バケット: 近傍の水辺フィーチャーを O(1) で探索 ─
+    CELL = 0.003  # ~330m per cell
+    bucket: dict = {}
+    for f in water_feats:
+        k = (int(f["lat"] / CELL), int(f["lng"] / CELL))
+        bucket.setdefault(k, []).append(f)
+
+    # ─ 細かいグリッド（0.004度 ≈ 440m）───────────────────────
+    lat_step = 0.004
     lng_step = lat_step / max(0.01, math.cos(math.radians(lat)))
-    steps    = max(1, int(radius_km / 1.1))
+    steps    = max(1, int(radius_km / (lat_step * 111)))
+    cos_lat  = math.cos(math.radians(lat))
+    BCELLS   = int(WATER_RANGE / (CELL * 111)) + 1  # バケット検索半径
 
     points: list = []
     for di in range(-steps, steps + 1):
@@ -774,14 +788,29 @@ def get_water_heatmap(lat: float, lng: float, species: str = "シーバス", rad
             g_lat = lat + di * lat_step
             g_lng = lng + dj * lng_step
             dlat  = (g_lat - lat) * 111
-            dlng  = (g_lng - lng) * 111 * math.cos(math.radians(lat))
+            dlng  = (g_lng - lng) * 111 * cos_lat
             if math.sqrt(dlat**2 + dlng**2) > radius_km:
                 continue
+
+            # ── Fast water check (バケット使用) ──
+            ki = int(g_lat / CELL)
+            kj = int(g_lng / CELL)
+            gc = math.cos(math.radians(g_lat))
+            min_w = 9999.0
+            for bi in range(-BCELLS, BCELLS + 1):
+                for bj in range(-BCELLS, BCELLS + 1):
+                    for wf in bucket.get((ki+bi, kj+bj), []):
+                        d = math.sqrt(((g_lat-wf["lat"])*111)**2 + ((g_lng-wf["lng"])*111*gc)**2)
+                        if d < min_w:
+                            min_w = d
+            if min_w > WATER_RANGE:
+                continue  # 水辺から遠い → スキップ（陸地除外）
+
+            # ── Full scoring（水辺ポイントのみ到達）──
             s = _score_near_water(g_lat, g_lng, species, features, env)
             if s > 3:
                 points.append({"lat": round(g_lat, 4), "lng": round(g_lng, 4), "score": round(s / 100, 3)})
 
-    # フォールバック: 水辺データなし → 生態ヒートマップ
     if not points:
         eco_result = get_ecological_heatmap(lat, lng, species, radius_km)
         eco_result["water_based"] = False
