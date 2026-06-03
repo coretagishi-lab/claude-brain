@@ -284,6 +284,13 @@ python3 Shared/Workflows/queue.py done "完了メモ"  # 完了マーク
 
 **ルール:** `⏳` が存在する間は `next` を実行しない。1タスク完了してから次へ。
 
+### チェック③ YouTube・インスタ分析結果の確認
+
+Inboxに YouTube / Instagram の分析結果エントリがある場合:
+
+- **全プロジェクトへの活用を自動提案する**（各プロジェクトの style.md / Prompts/ への転用案を提示）
+- 提案後は tagishi の判断で昇格 or archived を決める
+
 ---
 
 ## セッション開始プロトコル（4ステップ・必須）
@@ -363,12 +370,13 @@ Projects/[slug]/
 
 詳細手順: `Shared/Workflows/session-end-protocol.md`
 
-### 最小実行セット（4アクション）
+### 最小実行セット（5アクション）
 
 1. **current-task.md** の `checkpoint` を中断地点に更新し、チェックリストを現状に合わせる
 2. **PROJECT_STATUS.md** の `next_action` / `updated_at` を更新する
 3. **Log** を `Logs/YYYY/MM/YYYY-MM-DD-session-[番号].md` に書く（意思決定のみ・全文禁止）
 4. **Session End Summary** をユーザーへ出力する
+5. **`Projects/content-log/chat-log.md`** を GitHub に push する
 
 ### 保存ルール早見表
 
