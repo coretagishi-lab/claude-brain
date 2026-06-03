@@ -1,0 +1,714 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="theme-color" content="#0a1628">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="釣りマップ">
+<title>Angler's Map</title>
+<link rel="manifest" href="/manifest.json">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+:root{
+  --navy:#0a1628;--navy2:#0f2040;--teal:#00c9b1;--teal2:#00a896;
+  --amber:#f5a623;--slate:#1e3a5f;--gray:#8aa4c0;--white:#f0f8ff;--text:#c8dff0;
+  --safe-top:env(safe-area-inset-top,0px);
+  --safe-bottom:env(safe-area-inset-bottom,0px);
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;background:var(--navy);color:var(--text);font-family:-apple-system,'Noto Sans JP',sans-serif;overflow:hidden}
+
+/* ── MAP ── */
+#map{position:fixed;inset:0;z-index:1}
+.leaflet-container{background:#071422}
+.leaflet-control-attribution{display:none}
+
+/* ── HEADER ── */
+#header{
+  position:fixed;top:0;left:0;right:0;z-index:10;
+  padding:calc(var(--safe-top) + 10px) 16px 10px;
+  background:linear-gradient(to bottom,rgba(10,22,40,0.95),transparent);
+  display:flex;align-items:center;justify-content:space-between;
+  pointer-events:none;
+}
+#header>*{pointer-events:auto}
+.logo{font-size:1.15rem;font-weight:900;color:var(--teal);letter-spacing:1px;text-decoration:none}
+.logo span{color:var(--amber)}
+#stats-bar{
+  display:flex;gap:8px;
+}
+.stat-pill{
+  background:rgba(10,22,40,0.85);backdrop-filter:blur(8px);
+  border:1px solid rgba(0,201,177,0.25);border-radius:20px;
+  padding:4px 10px;font-size:0.72rem;color:var(--teal);
+}
+
+/* ── MAP CONTROLS ── */
+#map-controls{
+  position:fixed;top:calc(var(--safe-top) + 60px);right:12px;z-index:10;
+  display:flex;flex-direction:column;gap:8px;
+}
+.map-btn{
+  width:40px;height:40px;border-radius:10px;border:none;cursor:pointer;
+  background:rgba(10,22,40,0.9);backdrop-filter:blur(8px);
+  border:1px solid rgba(0,201,177,0.2);
+  color:var(--text);font-size:1.1rem;
+  display:flex;align-items:center;justify-content:center;
+  transition:background .15s,border-color .15s;
+}
+.map-btn:active{background:rgba(0,201,177,0.15)}
+.map-btn.active{background:rgba(0,201,177,0.2);border-color:var(--teal);color:var(--teal)}
+
+/* ── BOTTOM NAV ── */
+#bottom-nav{
+  position:fixed;bottom:0;left:0;right:0;z-index:10;
+  padding:8px 0 calc(var(--safe-bottom) + 8px);
+  background:rgba(10,22,40,0.95);backdrop-filter:blur(12px);
+  border-top:1px solid rgba(0,201,177,0.12);
+  display:flex;justify-content:space-around;align-items:center;
+}
+.nav-item{
+  display:flex;flex-direction:column;align-items:center;gap:3px;
+  font-size:0.62rem;color:var(--gray);cursor:pointer;
+  padding:4px 20px;transition:color .15s;
+}
+.nav-item.active{color:var(--teal)}
+.nav-item .ni-icon{font-size:1.3rem}
+
+/* ── FAB ── */
+#fab{
+  position:fixed;
+  bottom:calc(var(--safe-bottom) + 72px);
+  left:50%;transform:translateX(-50%);
+  z-index:11;
+  width:60px;height:60px;border-radius:50%;border:none;cursor:pointer;
+  background:var(--teal);
+  box-shadow:0 4px 20px rgba(0,201,177,0.5);
+  font-size:1.6rem;color:var(--navy);
+  display:flex;align-items:center;justify-content:center;
+  transition:transform .15s,box-shadow .15s;
+}
+#fab:active{transform:translateX(-50%) scale(0.92)}
+
+/* ── SLIDE-UP SHEET (Post Form) ── */
+#sheet-overlay{
+  position:fixed;inset:0;z-index:20;
+  background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);
+  opacity:0;pointer-events:none;transition:opacity .3s;
+}
+#sheet-overlay.open{opacity:1;pointer-events:auto}
+#sheet{
+  position:fixed;bottom:0;left:0;right:0;z-index:21;
+  background:var(--navy2);
+  border-top-left-radius:20px;border-top-right-radius:20px;
+  border-top:1px solid rgba(0,201,177,0.2);
+  padding:0 16px calc(var(--safe-bottom) + 16px);
+  transform:translateY(100%);transition:transform .35s cubic-bezier(.32,.72,0,1);
+  max-height:92vh;overflow-y:auto;
+}
+#sheet.open{transform:translateY(0)}
+.sheet-handle{width:36px;height:4px;background:rgba(255,255,255,0.2);border-radius:2px;margin:12px auto 16px}
+.sheet-title{font-size:1.05rem;font-weight:700;color:var(--white);margin-bottom:20px;text-align:center}
+
+/* form elements */
+.form-group{margin-bottom:16px}
+.form-label{font-size:0.78rem;color:var(--gray);margin-bottom:6px;display:block}
+.form-label span{color:var(--teal)}
+.fish-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+.fish-chip{
+  padding:8px 4px;border-radius:8px;border:1px solid rgba(0,201,177,0.15);
+  background:rgba(10,22,40,0.8);text-align:center;cursor:pointer;
+  transition:background .15s,border-color .15s;
+}
+.fish-chip .fc-emoji{font-size:1.4rem;display:block}
+.fish-chip .fc-name{font-size:0.58rem;color:var(--gray);margin-top:2px}
+.fish-chip.selected{background:rgba(0,201,177,0.15);border-color:var(--teal)}
+.fish-chip.selected .fc-name{color:var(--teal)}
+
+input[type=number],input[type=text],textarea{
+  width:100%;background:rgba(10,22,40,0.8);border:1px solid rgba(0,201,177,0.2);
+  border-radius:8px;padding:10px 12px;color:var(--white);font-size:0.9rem;
+  font-family:inherit;outline:none;
+}
+input[type=number]:focus,input[type=text]:focus,textarea:focus{border-color:var(--teal)}
+textarea{resize:none;height:70px}
+input[type=number]{-moz-appearance:textfield}
+input[type=number]::-webkit-inner-spin-button{display:none}
+
+/* privacy selector */
+.privacy-sel{display:flex;gap:6px}
+.prv-btn{
+  flex:1;padding:9px 4px;border-radius:8px;border:1px solid rgba(0,201,177,0.15);
+  background:rgba(10,22,40,0.8);text-align:center;cursor:pointer;
+  font-size:0.7rem;color:var(--gray);transition:all .15s;
+  display:flex;flex-direction:column;align-items:center;gap:3px;
+}
+.prv-btn .prv-icon{font-size:1.2rem}
+.prv-btn.selected{border-color:var(--teal);background:rgba(0,201,177,0.12);color:var(--white)}
+.prv-btn.selected.amber{border-color:var(--amber);background:rgba(245,166,35,0.12)}
+
+/* photo upload */
+.photo-label{
+  display:flex;align-items:center;justify-content:center;gap:8px;
+  border:1.5px dashed rgba(0,201,177,0.25);border-radius:10px;
+  padding:16px;cursor:pointer;color:var(--gray);font-size:0.85rem;
+  transition:border-color .15s,background .15s;
+}
+.photo-label:active{background:rgba(0,201,177,0.05)}
+#photo-preview{width:100%;border-radius:10px;margin-top:8px;display:none;max-height:200px;object-fit:cover}
+input[type=file]{display:none}
+
+/* loc row */
+.loc-row{
+  display:flex;align-items:center;justify-content:space-between;
+  background:rgba(10,22,40,0.7);border:1px solid rgba(0,201,177,0.15);
+  border-radius:8px;padding:10px 12px;
+}
+.loc-text{font-size:0.78rem;color:var(--gray)}
+.loc-text strong{color:var(--teal);display:block;font-size:0.85rem}
+.loc-btn{
+  padding:6px 12px;border-radius:6px;border:none;
+  background:rgba(0,201,177,0.15);color:var(--teal);font-size:0.75rem;cursor:pointer;
+}
+
+/* submit */
+#submit-btn{
+  width:100%;padding:14px;border-radius:12px;border:none;cursor:pointer;
+  background:var(--teal);color:var(--navy);font-size:1rem;font-weight:700;
+  margin-top:8px;transition:opacity .15s;
+}
+#submit-btn:active{opacity:.85}
+#submit-btn:disabled{opacity:.4;cursor:default}
+
+/* ── PIN POPUP ── */
+.pin-popup{min-width:180px;max-width:240px}
+.pp-fish{display:flex;align-items:center;gap:6px;margin-bottom:8px}
+.pp-emoji{font-size:1.4rem}
+.pp-name{font-size:0.9rem;font-weight:700;color:#0a1628}
+.pp-size{font-size:0.75rem;color:#444}
+.pp-meta{font-size:0.72rem;color:#666;margin-bottom:6px;line-height:1.5}
+.pp-prv{
+  display:inline-block;font-size:0.62rem;padding:2px 8px;border-radius:4px;
+  margin-bottom:10px;
+}
+.pp-prv.exact{background:#e8f9f7;color:#00a896}
+.pp-prv.area{background:#fff8e8;color:#e8940f}
+.pp-prv.private{background:#f5e8ff;color:#9b59b6}
+.pp-photo{width:100%;border-radius:6px;margin-bottom:10px;max-height:140px;object-fit:cover}
+.pp-nav{display:flex;gap:6px}
+.pp-nav a{
+  flex:1;display:flex;align-items:center;justify-content:center;gap:4px;
+  padding:7px;border-radius:6px;text-decoration:none;font-size:0.7rem;font-weight:700;
+}
+.pp-nav .g-btn{background:#e8f0fe;color:#1a73e8}
+.pp-nav .a-btn{background:#f5f5f5;color:#333}
+
+/* ── TOAST ── */
+#toast{
+  position:fixed;bottom:calc(var(--safe-bottom) + 90px);
+  left:50%;transform:translateX(-50%) translateY(20px);
+  z-index:50;
+  background:rgba(0,201,177,0.95);color:var(--navy);
+  padding:10px 20px;border-radius:12px;font-size:0.85rem;font-weight:700;
+  opacity:0;transition:opacity .3s,transform .3s;pointer-events:none;
+  white-space:nowrap;
+}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+#toast.error{background:rgba(220,50,50,0.95);color:#fff}
+
+/* ── LOCATION TARGET ── */
+#my-loc-btn{
+  position:fixed;bottom:calc(var(--safe-bottom) + 72px);right:12px;z-index:10;
+  width:40px;height:40px;border-radius:10px;border:1px solid rgba(0,201,177,0.2);
+  background:rgba(10,22,40,0.9);backdrop-filter:blur(8px);
+  color:var(--teal);font-size:1.2rem;
+  display:flex;align-items:center;justify-content:center;cursor:pointer;
+}
+#my-loc-btn:active{background:rgba(0,201,177,0.15)}
+
+/* ── LOADING OVERLAY ── */
+#loading{
+  position:fixed;inset:0;z-index:100;
+  background:var(--navy);display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:16px;
+  transition:opacity .4s;
+}
+#loading.hidden{opacity:0;pointer-events:none}
+.loader{
+  width:40px;height:40px;border-radius:50%;
+  border:3px solid rgba(0,201,177,0.2);
+  border-top-color:var(--teal);
+  animation:spin 0.9s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loader-text{font-size:0.85rem;color:var(--gray)}
+
+/* ── MODE PILLS ── */
+#mode-bar{
+  position:fixed;top:calc(var(--safe-top) + 56px);left:0;right:0;z-index:9;
+  display:flex;gap:6px;padding:0 12px;overflow-x:auto;scrollbar-width:none;
+  pointer-events:none;
+}
+#mode-bar::-webkit-scrollbar{display:none}
+.mode-pill{
+  flex-shrink:0;padding:5px 12px;border-radius:16px;
+  background:rgba(10,22,40,0.88);backdrop-filter:blur(8px);
+  border:1px solid rgba(0,201,177,0.2);
+  font-size:0.72rem;color:var(--gray);cursor:pointer;pointer-events:auto;
+  transition:all .15s;white-space:nowrap;
+}
+.mode-pill.active{background:rgba(0,201,177,0.18);border-color:var(--teal);color:var(--teal)}
+
+/* leaflet dark popup */
+.leaflet-popup-content-wrapper{background:#0d2236;border:1px solid rgba(0,201,177,0.25);border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,0.6)}
+.leaflet-popup-tip-container{display:none}
+.leaflet-popup-content{margin:12px 14px}
+</style>
+</head>
+<body>
+
+<!-- Loading -->
+<div id="loading">
+  <div class="loader"></div>
+  <div class="loader-text">マップを読み込み中...</div>
+</div>
+
+<!-- Map -->
+<div id="map"></div>
+
+<!-- Header -->
+<header id="header">
+  <a class="logo" href="/">ANGLER'S<span>MAP</span></a>
+  <div id="stats-bar">
+    <span class="stat-pill" id="total-pill">🎣 0釣果</span>
+  </div>
+</header>
+
+<!-- Mode bar -->
+<div id="mode-bar">
+  <div class="mode-pill active" data-mode="catches">📍 釣果</div>
+  <div class="mode-pill" data-mode="heatmap">🌡 ヒートマップ</div>
+  <div class="mode-pill" data-mode="tackle">🎣 釣具店</div>
+  <div class="mode-pill" data-mode="boats">⚓ 遊漁船</div>
+</div>
+
+<!-- Map controls -->
+<div id="map-controls">
+  <button class="map-btn" id="my-loc-btn" title="現在地">📍</button>
+</div>
+
+<!-- FAB -->
+<button id="fab" title="釣果を投稿">＋</button>
+
+<!-- Bottom nav -->
+<nav id="bottom-nav">
+  <div class="nav-item active" data-tab="map"><span class="ni-icon">🗺</span>マップ</div>
+  <div class="nav-item" data-tab="post"><span class="ni-icon">📷</span>投稿</div>
+  <div class="nav-item" data-tab="records"><span class="ni-icon">📋</span>記録</div>
+</nav>
+
+<!-- Sheet overlay -->
+<div id="sheet-overlay"></div>
+
+<!-- Post sheet -->
+<div id="sheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-title">🐟 釣果を投稿</div>
+
+  <form id="post-form" enctype="multipart/form-data">
+    <!-- 魚種 -->
+    <div class="form-group">
+      <label class="form-label">魚種 <span>*</span></label>
+      <div class="fish-grid" id="fish-grid"></div>
+      <input type="hidden" id="sel-species" name="fish_species" required>
+      <input type="hidden" id="sel-emoji"   name="fish_emoji">
+    </div>
+
+    <!-- サイズ -->
+    <div class="form-group" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div>
+        <label class="form-label">サイズ (cm)</label>
+        <input type="number" name="size_cm" placeholder="例: 45" min="1" max="300">
+      </div>
+      <div>
+        <label class="form-label">重さ (g)</label>
+        <input type="number" name="weight_g" placeholder="例: 1200" min="1">
+      </div>
+    </div>
+
+    <!-- ルアー -->
+    <div class="form-group">
+      <label class="form-label">使用ルアー / エサ</label>
+      <input type="text" name="lure_name" placeholder="例: IMAコモモ125F チャートバックパール">
+    </div>
+
+    <!-- メモ -->
+    <div class="form-group">
+      <label class="form-label">メモ</label>
+      <textarea name="memo" placeholder="状況・ヒットパターンなど自由に"></textarea>
+    </div>
+
+    <!-- 写真 -->
+    <div class="form-group">
+      <label class="form-label">写真</label>
+      <label class="photo-label" for="photo-input">
+        <span>📷</span><span>タップして写真を追加</span>
+      </label>
+      <input type="file" id="photo-input" name="photo" accept="image/*" capture="environment">
+      <img id="photo-preview" alt="preview">
+    </div>
+
+    <!-- 場所公開設定 -->
+    <div class="form-group">
+      <label class="form-label">場所の公開設定</label>
+      <div class="privacy-sel">
+        <button type="button" class="prv-btn" data-prv="exact">
+          <span class="prv-icon">📍</span>正確公開
+        </button>
+        <button type="button" class="prv-btn selected" data-prv="area">
+          <span class="prv-icon">🌀</span>エリア公開
+        </button>
+        <button type="button" class="prv-btn amber" data-prv="private">
+          <span class="prv-icon">🔐</span>非公開
+        </button>
+      </div>
+      <input type="hidden" id="sel-privacy" name="privacy" value="area">
+    </div>
+
+    <!-- 位置 -->
+    <div class="form-group">
+      <label class="form-label">釣り場の位置</label>
+      <div class="loc-row">
+        <div class="loc-text">
+          <strong id="loc-display">現在地を取得中...</strong>
+          <span id="loc-sub">マップをタップして手動で変更できます</span>
+        </div>
+        <button type="button" class="loc-btn" id="use-current-loc">現在地</button>
+      </div>
+      <input type="hidden" id="post-lat" name="lat">
+      <input type="hidden" id="post-lng" name="lng">
+    </div>
+
+    <button type="submit" id="submit-btn" disabled>投稿する</button>
+  </form>
+</div>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<script>
+const API = '';  // same origin
+
+// ── State ────────────────────────────────────────────────────
+let map, myMarker, myLat, myLng, postLat, postLng;
+let catchMarkers = [];
+let currentMode = 'catches';
+let selectedPrivacy = 'area';
+let selectedSpecies = null;
+
+// ── Init map ─────────────────────────────────────────────────
+function initMap() {
+  map = L.map('map', {
+    center: [34.7, 135.5],
+    zoom: 11,
+    zoomControl: false,
+    attributionControl: false,
+  });
+
+  // Dark tile (CartoDB Dark Matter)
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    maxZoom: 19,
+    subdomains: 'abcd',
+  }).addTo(map);
+
+  // Map click → set post location
+  map.on('click', (e) => {
+    if (document.getElementById('sheet').classList.contains('open')) {
+      setPostLocation(e.latlng.lat, e.latlng.lng, '選択した場所');
+    }
+  });
+}
+
+// ── Geolocation ──────────────────────────────────────────────
+function getMyLocation(callback) {
+  if (!navigator.geolocation) {
+    showToast('位置情報が使えません', 'error');
+    return;
+  }
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      myLat = pos.coords.latitude;
+      myLng = pos.coords.longitude;
+      updateMyMarker();
+      if (callback) callback(myLat, myLng);
+    },
+    err => {
+      console.warn('geolocation error', err);
+      // fallback to Osaka bay
+      myLat = 34.67; myLng = 135.45;
+      updateMyMarker();
+      if (callback) callback(myLat, myLng);
+    },
+    { enableHighAccuracy: true, timeout: 8000 }
+  );
+}
+
+function updateMyMarker() {
+  const icon = L.divIcon({
+    className: '',
+    html: `<div style="
+      width:16px;height:16px;border-radius:50%;
+      background:var(--teal);border:3px solid #fff;
+      box-shadow:0 0 0 6px rgba(0,201,177,0.25)"></div>`,
+    iconSize: [16, 16],
+    iconAnchor: [8, 8],
+  });
+  if (myMarker) myMarker.setLatLng([myLat, myLng]);
+  else { myMarker = L.marker([myLat, myLng], { icon, zIndexOffset: 1000 }).addTo(map); }
+  map.setView([myLat, myLng], 14);
+}
+
+// ── Catch markers ─────────────────────────────────────────────
+const privacyLabel = { exact: '正確公開', area: 'エリア公開', private: '非公開' };
+
+async function loadCatches() {
+  try {
+    const bounds = map.getBounds();
+    const q = `n=${bounds.getNorth()}&s=${bounds.getSouth()}&e=${bounds.getEast()}&w=${bounds.getWest()}`;
+    const res = await fetch(`${API}/api/catches?${q}`);
+    const data = await res.json();
+
+    catchMarkers.forEach(m => map.removeLayer(m));
+    catchMarkers = [];
+
+    data.forEach(c => addCatchPin(c));
+
+    // update total
+    const statsRes = await fetch(`${API}/api/stats`);
+    const stats = await statsRes.json();
+    const total = Object.values(stats).reduce((s, v) => s + v.count, 0);
+    document.getElementById('total-pill').textContent = `🎣 ${total}釣果`;
+  } catch(e) { console.error(e); }
+}
+
+function addCatchPin(c) {
+  const icon = L.divIcon({
+    className: '',
+    html: `<div style="
+      font-size:1.6rem;line-height:1;
+      filter:drop-shadow(0 2px 4px rgba(0,0,0,0.8));
+      cursor:pointer">${c.fish_emoji}</div>`,
+    iconSize: [28, 28],
+    iconAnchor: [14, 14],
+    popupAnchor: [0, -16],
+  });
+
+  const marker = L.marker([c.lat, c.lng], { icon }).addTo(map);
+
+  const lureHtml = c.lure_name ? `<div>🎣 ${c.lure_name}</div>` : '';
+  const sizeHtml = c.size_cm    ? `<div>📏 ${c.size_cm}cm${c.weight_g ? ` / ${c.weight_g}g` : ''}</div>` : '';
+  const memoHtml = c.memo       ? `<div>📝 ${c.memo}</div>` : '';
+  const photoHtml = c.photo_filename
+    ? `<img class="pp-photo" src="/uploads/${c.photo_filename}" loading="lazy">` : '';
+  const date = new Date(c.caught_at).toLocaleDateString('ja-JP', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
+
+  const navLat = c.lat, navLng = c.lng;
+  const gUrl = `https://www.google.com/maps/dir/?api=1&destination=${navLat},${navLng}`;
+  const aUrl = `http://maps.apple.com/?daddr=${navLat},${navLng}`;
+
+  marker.bindPopup(`
+    <div class="pin-popup">
+      <div class="pp-fish">
+        <span class="pp-emoji">${c.fish_emoji}</span>
+        <div>
+          <div class="pp-name">${c.fish_species}</div>
+          ${c.size_cm ? `<div class="pp-size">${c.size_cm}cm</div>` : ''}
+        </div>
+      </div>
+      <span class="pp-prv ${c.privacy}">${privacyLabel[c.privacy]}</span>
+      ${photoHtml}
+      <div class="pp-meta">${sizeHtml}${lureHtml}${memoHtml}<div>🕐 ${date}</div></div>
+      <div class="pp-nav">
+        <a href="${gUrl}" target="_blank" class="g-btn">🗺 Googleマップ</a>
+        <a href="${aUrl}" target="_blank" class="a-btn">🍎 Appleマップ</a>
+      </div>
+    </div>
+  `, { maxWidth: 260 });
+
+  catchMarkers.push(marker);
+}
+
+// ── Fish list ─────────────────────────────────────────────────
+async function loadFishList() {
+  const res = await fetch(`${API}/api/fish-list`);
+  const list = await res.json();
+  const grid = document.getElementById('fish-grid');
+  grid.innerHTML = '';
+  list.forEach(f => {
+    const el = document.createElement('div');
+    el.className = 'fish-chip';
+    el.dataset.id = f.id;
+    el.dataset.name = f.name;
+    el.dataset.emoji = f.emoji;
+    el.innerHTML = `<span class="fc-emoji">${f.emoji}</span><span class="fc-name">${f.name}</span>`;
+    el.addEventListener('click', () => selectFish(el, f));
+    grid.appendChild(el);
+  });
+}
+
+function selectFish(el, f) {
+  document.querySelectorAll('.fish-chip').forEach(c => c.classList.remove('selected'));
+  el.classList.add('selected');
+  selectedSpecies = f;
+  document.getElementById('sel-species').value = f.name;
+  document.getElementById('sel-emoji').value = f.emoji;
+  checkSubmit();
+}
+
+// ── Post form ─────────────────────────────────────────────────
+function setPostLocation(lat, lng, label) {
+  postLat = lat; postLng = lng;
+  document.getElementById('post-lat').value = lat;
+  document.getElementById('post-lng').value = lng;
+  document.getElementById('loc-display').textContent = label || `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+  checkSubmit();
+}
+
+function checkSubmit() {
+  const ok = selectedSpecies && postLat && postLng;
+  document.getElementById('submit-btn').disabled = !ok;
+}
+
+// ── Sheet open / close ────────────────────────────────────────
+function openSheet() {
+  document.getElementById('sheet').classList.add('open');
+  document.getElementById('sheet-overlay').classList.add('open');
+  if (myLat) setPostLocation(myLat, myLng, `現在地 (${myLat.toFixed(4)}, ${myLng.toFixed(4)})`);
+}
+function closeSheet() {
+  document.getElementById('sheet').classList.remove('open');
+  document.getElementById('sheet-overlay').classList.remove('open');
+}
+
+// ── Submit ────────────────────────────────────────────────────
+document.getElementById('post-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('submit-btn');
+  btn.disabled = true;
+  btn.textContent = '投稿中...';
+
+  try {
+    const fd = new FormData(e.target);
+    const res = await fetch(`${API}/api/catches`, { method: 'POST', body: fd });
+    if (!res.ok) throw new Error(await res.text());
+    const c = await res.json();
+    closeSheet();
+    e.target.reset();
+    document.querySelectorAll('.fish-chip').forEach(c => c.classList.remove('selected'));
+    selectedSpecies = null;
+    postLat = postLng = null;
+    document.getElementById('loc-display').textContent = '現在地を取得中...';
+    document.getElementById('photo-preview').style.display = 'none';
+    if (c.display_lat) addCatchPin(c);
+    showToast(`${c.fish_emoji} ${c.fish_species} を投稿しました！`);
+    await loadCatches();
+  } catch(err) {
+    showToast('投稿に失敗しました', 'error');
+    console.error(err);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '投稿する';
+  }
+});
+
+// ── Privacy buttons ───────────────────────────────────────────
+document.querySelectorAll('.prv-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.prv-btn').forEach(b => b.classList.remove('selected'));
+    btn.classList.add('selected');
+    selectedPrivacy = btn.dataset.prv;
+    document.getElementById('sel-privacy').value = selectedPrivacy;
+  });
+});
+
+// ── Photo preview ─────────────────────────────────────────────
+document.getElementById('photo-input').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    const img = document.getElementById('photo-preview');
+    img.src = ev.target.result;
+    img.style.display = 'block';
+  };
+  reader.readAsDataURL(file);
+});
+
+// ── Mode pills ────────────────────────────────────────────────
+document.querySelectorAll('.mode-pill').forEach(pill => {
+  pill.addEventListener('click', () => {
+    document.querySelectorAll('.mode-pill').forEach(p => p.classList.remove('active'));
+    pill.classList.add('active');
+    currentMode = pill.dataset.mode;
+    if (currentMode === 'catches') loadCatches();
+    else showToast(`${pill.textContent}はPhase 2で実装予定`);
+  });
+});
+
+// ── Bottom nav ────────────────────────────────────────────────
+document.querySelectorAll('.nav-item').forEach(item => {
+  item.addEventListener('click', () => {
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    item.classList.add('active');
+    if (item.dataset.tab === 'post') openSheet();
+    else if (item.dataset.tab === 'records') showToast('記録はPhase 2で実装予定');
+  });
+});
+
+// ── Toast ─────────────────────────────────────────────────────
+function showToast(msg, type='') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'show' + (type ? ' ' + type : '');
+  clearTimeout(t._tid);
+  t._tid = setTimeout(() => { t.className = ''; }, 2800);
+}
+
+// ── Map zoom end → reload catches ────────────────────────────
+map || (() => {})();  // ensure map exists
+
+// ── Buttons ───────────────────────────────────────────────────
+document.getElementById('my-loc-btn').addEventListener('click', () => {
+  if (myLat) map.setView([myLat, myLng], 15);
+  else getMyLocation();
+});
+document.getElementById('fab').addEventListener('click', openSheet);
+document.getElementById('sheet-overlay').addEventListener('click', closeSheet);
+document.getElementById('use-current-loc').addEventListener('click', () => {
+  if (myLat) setPostLocation(myLat, myLng, `現在地 (${myLat.toFixed(4)}, ${myLng.toFixed(4)})`);
+  else getMyLocation((la, ln) => setPostLocation(la, ln, `現在地 (${la.toFixed(4)}, ${ln.toFixed(4)})`));
+});
+
+// ── Boot ─────────────────────────────────────────────────────
+(async () => {
+  initMap();
+  await loadFishList();
+
+  // get location first, then load catches
+  getMyLocation(async () => {
+    await loadCatches();
+    map.on('moveend', loadCatches);
+    document.getElementById('loading').classList.add('hidden');
+  });
+
+  // PWA service worker
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  }
+})();
+</script>
+</body>
+</html>
