@@ -484,20 +484,7 @@ let isFishing=false;
 let roomMap=null, roomMarkers=[];
 let currentRoom=null;
 
-// ── Boats data (HP実在確認済みのみ 2026-06-04 Web検索) ──────────────
-const BOATS_DATA=[
-  // 金沢八景港
-  {shipName:"忠彦丸",    port:"金沢八景",lat:35.3440,lng:139.6370,target:"アジ・タコ・ヒラメ・カサゴ",price:"¥7,500〜",cap:15,hp:"https://tadahikomaru.com/",        types:["遊漁船"]},
-  {shipName:"一之瀬丸",  port:"金沢八景",lat:35.3450,lng:139.6380,target:"タチウオ・マダイ・アジ",   price:"¥6,500〜",cap:12,hp:"https://www.ichinosemaru.net/",      types:["遊漁船"]},
-  // 久里浜港
-  {shipName:"黒川本家",  port:"久里浜",  lat:35.2170,lng:139.7140,target:"タチウオ・アジ・マダイ・ワラサ",price:"¥10,000〜",cap:12,hp:"https://kurokawa-maru.com/",  types:["遊漁船"]},
-  {shipName:"鈴福丸",    port:"久里浜",  lat:35.2165,lng:139.7135,target:"アジ・シロギス・ライト五目",price:"¥8,000〜",cap:10,hp:"https://www.suzufukumaru.com/",     types:["遊漁船"]},
-  // 茅ヶ崎港
-  {shipName:"一俊丸",    port:"茅ヶ崎",  lat:35.3200,lng:139.4020,target:"カツオ・ブリ・シイラ・マグロ",price:"¥14,000〜",cap:12,hp:"http://kazutoshimaru.net/",      types:["遊漁船","沖磯"]},
-  {shipName:"沖右ヱ門丸",port:"茅ヶ崎",  lat:35.3205,lng:139.4025,target:"アジ・マダイ・カサゴ",    price:"¥10,000〜",cap:10,hp:"https://www.okiemonmaru.com/",        types:["遊漁船"]},
-  // 平塚港
-  {shipName:"庄三郎丸",  port:"平塚",    lat:35.3280,lng:139.3560,target:"ルアーシイラ・ヒラメ・タチウオ",price:"¥11,000〜",cap:10,hp:"https://www.shouzaburo.com/", types:["遊漁船"]},
-];
+// boats は /data/boats.json から動的ロード（renderBoats参照）
 
 // ── Auth ─────────────────────────────────────────────────────
 function loadAuth(){
@@ -785,10 +772,7 @@ async function renderHeatmap(silent=false){
     canvasHeatLayer=createCanvasHeatmap(map,data.points,{
       radiusFn: z=>Math.max(22,Math.min(70,z*7-60))
     });
-    if(!silent){
-      const names=(data.river_names||[]).slice(0,3).join('・');
-      showToast(`🌡 ${data.points.length}pt ${names?`(${names})`:''}`);
-    }
+    // ptトースト削除（silent/non-silentともに非表示）
   }catch(e){console.error('heatmap:',e);}
 }
 
@@ -799,61 +783,54 @@ function scheduleHeatmapRefresh(){
   },700);
 }
 
-// ── Tackle shops ──────────────────────────────────────────────
+// ── Tackle shops (静的JSONから即座表示) ──────────────────────────
 async function loadTackleShops(){
-  showToast('🎣 釣具店を検索中...');
-  const b=map.getBounds();
-  const pad=0.15;
-  const bbox=`${b.getSouth()-pad},${b.getWest()-pad},${b.getNorth()+pad},${b.getEast()+pad}`;
-  const query=`[out:json][timeout:25];(node["shop"="fishing"](${bbox});node["shop"="tackle"](${bbox});node["shop"="fishing_tackle"](${bbox});node["shop"="sports"]["sport"="fishing"](${bbox});node["shop"]["name"~"上州屋|タックルベリー|キャスティング|フィッシングポイント|つり具|釣具",i](${bbox});way["shop"="fishing"](${bbox});way["shop"="tackle"](${bbox});way["shop"]["name"~"上州屋|タックルベリー|キャスティング",i](${bbox}););out center;`;
+  if(tackleMarkers.length>0) return; // already loaded
   try{
-    const data=await _overpassFetch(query);
-    data.elements.forEach(el=>{
-      const lat=el.lat??el.center?.lat; const lng=el.lon??el.center?.lon;
-      if(!lat||!lng) return;
-      const name=el.tags?.name||el.tags?.['name:ja']||null;
+    const shops=await fetch('/data/tackle_shops.json').then(r=>r.json());
+    shops.forEach(shop=>{
+      const {name,lat,lng,hours,hp,tel}=shop;
       const displayName=name||'釣具店';
       const icon=L.divIcon({className:'',html:`<div class="glow-dot-blue"></div>`,iconSize:[12,12],iconAnchor:[6,6]});
       const m=L.marker([lat,lng],{icon}).addTo(map);
-      
-      const hours=_fmtHours(el.tags?.opening_hours);
-      const hp=el.tags?.website;
-      const gMapsUrl=`https://www.google.com/maps/search/${encodeURIComponent(displayName)}/@${lat},${lng},17z`;
-      const gHoursUrl=`https://www.google.com/search?q=${encodeURIComponent(displayName+' 営業時間')}`;
-      const hoursHtml=hours==='営業時間不明'
-        ?`<div style="font-size:0.72rem;color:var(--gray);margin-bottom:6px">🕐 <a href="${gHoursUrl}" target="_blank" style="color:#4f9eff">Googleで確認→</a></div>`
-        :`<div style="font-size:0.72rem;color:var(--teal);margin-bottom:6px">🕐 ${hours}</div>`;
+      const gUrl=`https://www.google.com/maps/search/${encodeURIComponent(displayName)}/@${lat},${lng},17z`;
+      const gHUrl=`https://www.google.com/search?q=${encodeURIComponent(displayName+' 営業時間')}`;
+      const hoursHtml=hours
+        ?`<div style="font-size:0.72rem;color:var(--teal);margin-bottom:6px">🕐 ${hours}</div>`
+        :`<div style="font-size:0.72rem;color:var(--gray);margin-bottom:6px">🕐 <a href="${gHUrl}" target="_blank" style="color:#4f9eff">Googleで確認→</a></div>`;
       const hpBtn=hp?`<a href="${hp}" target="_blank" style="flex:1;display:flex;align-items:center;justify-content:center;gap:3px;padding:7px;border-radius:6px;text-decoration:none;font-size:0.7rem;font-weight:700;background:rgba(0,150,255,0.18);color:#4f9eff">🌐 HP</a>`:'';
-      const gBtn=`<a href="${gMapsUrl}" target="_blank" style="flex:1;display:flex;align-items:center;justify-content:center;gap:3px;padding:7px;border-radius:6px;text-decoration:none;font-size:0.7rem;font-weight:700;background:rgba(26,115,232,0.18);color:#4f9eff">🗺 マップ</a>`;
-      m.bindPopup(`<div style="min-width:180px"><div style="font-weight:700;margin-bottom:6px;font-size:0.9rem;color:var(--white)">🎣 ${displayName}</div>${hoursHtml}${el.tags?.phone?`<div style="font-size:0.72rem;color:var(--gray);margin-bottom:6px">📞 ${el.tags.phone}</div>`:''}<div style="display:flex;gap:6px;margin-top:4px">${hpBtn}${gBtn}</div></div>`);
+      const gBtn=`<a href="${gUrl}" target="_blank" style="flex:1;display:flex;align-items:center;justify-content:center;gap:3px;padding:7px;border-radius:6px;text-decoration:none;font-size:0.7rem;font-weight:700;background:rgba(26,115,232,0.18);color:#4f9eff">🗺 マップ</a>`;
+      m.bindPopup(`<div style="min-width:180px"><div style="font-weight:700;margin-bottom:6px;font-size:0.9rem;color:var(--white)">🎣 ${displayName}</div>${hoursHtml}${tel?`<div style="font-size:0.72rem;color:var(--gray);margin-bottom:6px">📞 ${tel}</div>`:''}<div style="display:flex;gap:6px;margin-top:4px">${hpBtn}${gBtn}</div></div>`);
       tackleMarkers.push(m);
     });
-    showToast(tackleMarkers.length>0?`釣具店 ${tackleMarkers.length}件`:'この範囲に釣具店データなし');
+    showToast(`釣具店 ${tackleMarkers.length}件`);
   }catch(e){console.error(e);showToast('釣具店データ取得失敗','error');}
 }
 
-// ── Fishing boats (red glow dots) ─ HPあり限定 ───────────────
-function renderBoats(){
-  const withHp=BOATS_DATA.filter(b=>b.hp);
-  withHp.forEach(boat=>{
-    const icon=L.divIcon({className:'',html:`<div class="glow-dot"></div>`,iconSize:[12,12],iconAnchor:[6,6]});
-    const m=L.marker([boat.lat,boat.lng],{icon}).addTo(map);
-    const typeLabel=(boat.types||['遊漁船']).join('・');
-    
-    m.bindPopup(`<div style="min-width:190px">
-      <div style="font-weight:700;font-size:0.95rem;margin-bottom:4px;color:var(--white)">⛵ ${boat.shipName}</div>
-      <div style="font-size:0.68rem;color:var(--teal);margin-bottom:8px">${typeLabel} — ${boat.port}</div>
-      <div style="font-size:0.75rem;color:var(--gray);line-height:1.9;margin-bottom:8px">
-        🎣 ${boat.target}<br>💴 ${boat.price}<br>👥 定員 ${boat.cap}名
-      </div>
-      <div style="display:flex;gap:6px">
-        <a href="${boat.hp}" target="_blank" style="flex:1;display:flex;align-items:center;justify-content:center;gap:3px;padding:7px;border-radius:6px;text-decoration:none;font-size:0.7rem;font-weight:700;background:rgba(255,34,68,0.18);color:#ff4466">🌐 HP・予約</a>
-        <a href="https://www.google.com/maps/search/${encodeURIComponent(boat.shipName+' '+boat.port)}/@${boat.lat},${boat.lng},15z" target="_blank" style="flex:1;display:flex;align-items:center;justify-content:center;gap:3px;padding:7px;border-radius:6px;text-decoration:none;font-size:0.7rem;font-weight:700;background:rgba(26,115,232,0.18);color:#4f9eff">🗺 マップ</a>
-      </div>
-    </div>`);
-    boatMarkers.push(m);
-  });
-  showToast(`遊漁船 ${boatMarkers.length}隻（HP確認済み）`);
+// ── Fishing boats (静的JSONから即座表示) ──────────────────────────
+async function renderBoats(){
+  if(boatMarkers.length>0) return; // already loaded
+  try{
+    const boats=await fetch('/data/boats.json').then(r=>r.json());
+    boats.filter(b=>b.hp).forEach(boat=>{
+      const icon=L.divIcon({className:'',html:`<div class="glow-dot"></div>`,iconSize:[12,12],iconAnchor:[6,6]});
+      const m=L.marker([boat.lat,boat.lng],{icon}).addTo(map);
+      const typeLabel=(boat.types||['遊漁船']).join('・');
+      m.bindPopup(`<div style="min-width:190px">
+        <div style="font-weight:700;font-size:0.95rem;margin-bottom:4px;color:var(--white)">⛵ ${boat.shipName}</div>
+        <div style="font-size:0.68rem;color:var(--teal);margin-bottom:8px">${typeLabel} — ${boat.port}</div>
+        <div style="font-size:0.75rem;color:var(--gray);line-height:1.9;margin-bottom:8px">
+          🎣 ${boat.target}<br>💴 ${boat.price}<br>👥 定員 ${boat.cap}名
+        </div>
+        <div style="display:flex;gap:6px">
+          <a href="${boat.hp}" target="_blank" style="flex:1;display:flex;align-items:center;justify-content:center;gap:3px;padding:7px;border-radius:6px;text-decoration:none;font-size:0.7rem;font-weight:700;background:rgba(255,34,68,0.18);color:#ff4466">🌐 HP・予約</a>
+          <a href="https://www.google.com/maps/search/${encodeURIComponent(boat.shipName+' '+boat.port)}/@${boat.lat},${boat.lng},15z" target="_blank" style="flex:1;display:flex;align-items:center;justify-content:center;gap:3px;padding:7px;border-radius:6px;text-decoration:none;font-size:0.7rem;font-weight:700;background:rgba(26,115,232,0.18);color:#4f9eff">🗺 マップ</a>
+        </div>
+      </div>`);
+      boatMarkers.push(m);
+    });
+    showToast(`遊漁船 ${boatMarkers.length}隻`);
+  }catch(e){console.error(e);}
 }
 
 // ── Fishing anglers nearby ────────────────────────────────────

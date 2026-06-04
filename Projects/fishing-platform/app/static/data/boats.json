@@ -1,0 +1,102 @@
+[
+  {
+    "shipName": "忠彦丸",
+    "port": "金沢八景",
+    "lat": 35.3440, "lng": 139.6370,
+    "target": "アジ・タコ・ヒラメ・カサゴ",
+    "price": "¥7,500〜",
+    "cap": 15,
+    "hp": "https://tadahikomaru.com/",
+    "types": ["遊漁船"]
+  },
+  {
+    "shipName": "一之瀬丸",
+    "port": "金沢八景",
+    "lat": 35.3450, "lng": 139.6380,
+    "target": "タチウオ・マダイ・アジ",
+    "price": "¥6,500〜",
+    "cap": 12,
+    "hp": "https://www.ichinosemaru.net/",
+    "types": ["遊漁船"]
+  },
+  {
+    "shipName": "黒川本家",
+    "port": "久里浜",
+    "lat": 35.2170, "lng": 139.7140,
+    "target": "タチウオ・アジ・マダイ・ワラサ",
+    "price": "¥10,000〜",
+    "cap": 12,
+    "hp": "https://kurokawa-maru.com/",
+    "types": ["遊漁船"]
+  },
+  {
+    "shipName": "鈴福丸",
+    "port": "久里浜",
+    "lat": 35.2165, "lng": 139.7135,
+    "target": "アジ・シロギス・ライト五目",
+    "price": "¥8,000〜",
+    "cap": 10,
+    "hp": "https://www.suzufukumaru.com/",
+    "types": ["遊漁船"]
+  },
+  {
+    "shipName": "一俊丸",
+    "port": "茅ヶ崎",
+    "lat": 35.3200, "lng": 139.4020,
+    "target": "カツオ・ブリ・シイラ・マグロ",
+    "price": "¥14,000〜",
+    "cap": 12,
+    "hp": "http://kazutoshimaru.net/",
+    "types": ["遊漁船", "沖磯"]
+  },
+  {
+    "shipName": "沖右ヱ門丸",
+    "port": "茅ヶ崎",
+    "lat": 35.3205, "lng": 139.4025,
+    "target": "アジ・マダイ・カサゴ",
+    "price": "¥10,000〜",
+    "cap": 10,
+    "hp": "https://www.okiemonmaru.com/",
+    "types": ["遊漁船"]
+  },
+  {
+    "shipName": "庄三郎丸",
+    "port": "平塚",
+    "lat": 35.3280, "lng": 139.3560,
+    "target": "ルアーシイラ・ヒラメ・タチウオ",
+    "price": "¥11,000〜",
+    "cap": 10,
+    "hp": "https://www.shouzaburo.com/",
+    "types": ["遊漁船"]
+  },
+  {
+    "shipName": "長崎屋",
+    "port": "浦安",
+    "lat": 35.6521, "lng": 139.9042,
+    "target": "シーバス・クロダイ・ハゼ",
+    "price": "¥6,000〜",
+    "cap": 10,
+    "hp": "https://nagasakiya-urayan.com/",
+    "types": ["遊漁船", "シーバス"]
+  },
+  {
+    "shipName": "弁天屋",
+    "port": "浦安",
+    "lat": 35.6529, "lng": 139.9034,
+    "target": "シーバス・マゴチ・ヒラメ",
+    "price": "¥7,000〜",
+    "cap": 12,
+    "hp": "https://bentengoya.com/",
+    "types": ["遊漁船", "シーバス"]
+  },
+  {
+    "shipName": "晴海丸",
+    "port": "葛西",
+    "lat": 35.6456, "lng": 139.8734,
+    "target": "シーバス・クロダイ・タコ",
+    "price": "¥6,500〜",
+    "cap": 10,
+    "hp": "https://harumimaru.com/",
+    "types": ["遊漁船", "シーバス"]
+  }
+]
