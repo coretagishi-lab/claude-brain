@@ -4,7 +4,7 @@ current_status: active
 priority: medium
 due_date: ""
 review_waiting: false
-updated_at: 2026-06-03
+updated_at: 2026-06-04
 ---
 
 ## current_goal
@@ -66,8 +66,8 @@ updated_at: 2026-06-03
 - Nginx: ポート80リバースプロキシ → 8080
 
 ## next_action
-- Phase 3のUIをtagishiがレビューし、UX改善点をフィードバックする
-- 遊漁船の実DBデータ収集方法を検討する（Phase 4）
+- 遊漁船の実DBデータ収集方法を決定してPhase 4を完了させる
+- https://133.88.117.175 でアプリを確認してUXフィードバックをもらう
 
 ## blocker
 - ConoHaセキュリティグループでポート8080が閉鎖中（Nginx経由ポート80でアクセス可）

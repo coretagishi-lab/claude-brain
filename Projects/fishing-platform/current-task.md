@@ -1,16 +1,21 @@
 ---
 type: task
 status: idle
-checkpoint: 未着手
-updated_at: 2026-06-03
+checkpoint: 軽量化完了（SQLite川キャッシュ・GZip・SW v2）
+updated_at: 2026-06-04
 ---
 
 ## checkpoint
-preview/index.html 作成完了。次はMVPスコープ確定。
+メモリ逼迫緊急対応完了。次はPhase 4の遊漁船DB本格化。
 
 ## checklist
 - [x] PROJECT_STATUS.md 作成
-- [x] preview/index.html 作成
-- [ ] MVPスコープ確定（マップ・AI提案・釣果投稿のどれを最初に作るか）
-- [ ] 技術スタック選定（地図API・データソース）
-- [ ] 実装開始
+- [x] Phase 1〜3 実装完了
+- [x] Phase 4: 生態AIヒートマップ実装
+- [x] 川データSQLite化（メモリ使用量 254MB→50MB）
+- [x] ズーム別川表示フィルタ（関東全域半径制限撤廃）
+- [x] GZip圧縮配信
+- [x] SW v2（CDNキャッシュ強化）
+- [x] 釣具店・遊漁船: タップでポップアップ修正
+- [ ] 遊漁船DB本格化（手数料5〜10%）
+- [ ] HTTPS化（Let's Encrypt）
