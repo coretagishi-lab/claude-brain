@@ -633,7 +633,169 @@ _river_cache:    dict = {}
 _RIVER_CACHE_TTL = 7200  # 2時間（川データは変わらない）
 
 _ZOOM_INTERVAL = {10:400, 11:200, 12:100, 13:50, 14:20, 15:10}   # m/点
-_ZOOM_RADIUS_R = {10:28,  11:20,  12:13,  13:9,   14:6,  15:3}   # km
+_ZOOM_RADIUS_R = {10:28,  11:20,  12:13,  13:9,   14:6,  15:3}   # km（レガシー用）
+
+# ── シーバス精密スコアリング ─────────────────────────────────────────
+_river_score_cache: dict = {}
+_RIVER_SCORE_CACHE_TTL  = 3600  # 1時間
+
+# 既知の橋脚・合流点ランドマーク（実データ・精密スコアリング用）
+_SEABASS_LANDMARKS = [
+    # (lat, lng, type, bonus, name)
+    # 江戸川 橋脚
+    (35.6891, 139.8934, "bridge_pier", 50, "篠崎橋"),
+    (35.7012, 139.8845, "bridge_pier", 50, "江戸川橋"),
+    (35.7234, 139.8756, "bridge_pier", 50, "新葛飾橋"),
+    (35.7456, 139.8623, "bridge_pier", 50, "葛飾橋"),
+    # 江戸川 合流点
+    (35.6823, 139.8912, "confluence",  45, "中川合流"),
+    (35.7180, 139.8712, "confluence",  40, "新中川分岐"),
+    # 隅田川 橋脚・合流点
+    (35.6948, 139.7887, "bridge_pier", 50, "清洲橋"),
+    (35.6863, 139.7961, "bridge_pier", 50, "永代橋"),
+    (35.6782, 139.7823, "bridge_pier", 50, "勝鬨橋"),
+    (35.7034, 139.8023, "confluence",  45, "北十間川合流"),
+    # 荒川 橋脚・合流点
+    (35.7423, 139.8234, "bridge_pier", 50, "木根川橋"),
+    (35.7689, 139.7812, "confluence",  45, "綾瀬川合流"),
+    # 多摩川 橋脚
+    (35.5701, 139.7123, "bridge_pier", 50, "六郷橋"),
+    (35.5823, 139.7234, "bridge_pier", 50, "ガス橋"),
+    # 鶴見川
+    (35.5012, 139.6823, "confluence",  40, "早淵川合流"),
+]
+
+
+def _get_river_scoring_features(bbox_str: str) -> dict:
+    """橋・常夜灯・排水口・水門をOverpassから取得（TTLキャッシュ付き）"""
+    bucket = f"RSF_{bbox_str}"
+    now = _time.time()
+    if bucket in _river_score_cache:
+        ts, data = _river_score_cache[bucket]
+        if now - ts < _RIVER_SCORE_CACHE_TTL:
+            return data
+
+    query = (
+        f"[out:json][timeout:25];\n("
+        f'way["bridge"="yes"]({bbox_str});'
+        f'node["highway"="street_lamp"]({bbox_str});'
+        f'node["man_made"="outfall"]({bbox_str});'
+        f'node["waterway"~"weir|sluice_gate|floodgate"]({bbox_str});'
+        f");\nout geom center;"
+    )
+    raw = _overpass_fetch_osm(query)
+
+    bridges     = []  # (lat, lng, height_or_None)
+    lamps       = []  # (lat, lng)
+    outfalls    = []  # (lat, lng)
+    water_gates = []  # (lat, lng)
+
+    for el in raw.get("elements", []):
+        tags  = el.get("tags", {})
+        etype = el.get("type", "")
+        if etype == "way" and tags.get("bridge") == "yes":
+            center = el.get("center") or {}
+            la, lo = center.get("lat"), center.get("lon")
+            if la and lo:
+                try:
+                    h = float(str(tags.get("maxheight","")).replace("m","").strip())
+                except Exception:
+                    h = None
+                bridges.append((float(la), float(lo), h))
+        elif etype == "node":
+            la, lo = el.get("lat"), el.get("lon")
+            if not (la and lo): continue
+            la, lo = float(la), float(lo)
+            ww = tags.get("waterway","")
+            hw = tags.get("highway","")
+            mm = tags.get("man_made","")
+            if ww in ("weir","sluice_gate","floodgate"):
+                water_gates.append((la, lo))
+            elif hw == "street_lamp":
+                lamps.append((la, lo))
+            elif mm == "outfall":
+                outfalls.append((la, lo))
+
+    result = {"bridges": bridges, "lamps": lamps, "outfalls": outfalls, "water_gates": water_gates}
+    _river_score_cache[bucket] = (_time.time(), result)
+    return result
+
+
+def _score_seabass_point(g_lat: float, g_lng: float,
+                          scoring_feats: dict, tides: dict) -> float:
+    """川上のポイントをシーバス釣りスコアで評価（0-100）"""
+    water_gates = scoring_feats.get("water_gates", [])
+    bridges     = scoring_feats.get("bridges",     [])
+    lamps       = scoring_feats.get("lamps",       [])
+    outfalls    = scoring_feats.get("outfalls",    [])
+
+    # 水門100m以内は除外
+    for wla, wlo in water_gates:
+        if _dist_km(g_lat, g_lng, wla, wlo) < 0.1:
+            return 0.0
+
+    score = 15.0  # ベーススコア（川上であること）
+
+    # 既知ランドマーク（橋脚・合流点）スコアリング
+    # max_landmark_bonus: 赤判定の基準（20以上なら赤許可）
+    max_landmark_bonus = 0.0
+    for bla, blo, btype, bonus, _ in _SEABASS_LANDMARKS:
+        d_m = _dist_km(g_lat, g_lng, bla, blo) * 1000
+        if btype == "bridge_pier":
+            if d_m < 10:   lb = bonus
+            elif d_m < 40: lb = bonus * (1 - (d_m - 10) / 30)
+            else:          lb = 0.0
+        elif btype == "confluence":
+            lb = bonus * (1 - d_m / 50) if d_m < 50 else 0.0
+        else:
+            lb = 0.0
+        if lb > 0:
+            score += lb
+            max_landmark_bonus = max(max_landmark_bonus, lb)
+
+    # OSM橋ボーナス（最大値のみ採用・スタッキング防止）
+    max_bridge = 0.0
+    for bla, blo, bh in bridges:
+        d_m = _dist_km(g_lat, g_lng, bla, blo) * 1000
+        if d_m < 20:
+            bridge_bonus = 35
+            if bh is not None:
+                if bh <= 5:    bridge_bonus += 15
+                elif bh >= 10: bridge_bonus -= 5
+            max_bridge = max(max_bridge, bridge_bonus * (1 - d_m / 20))
+    score += max_bridge
+
+    # 常夜灯ボーナス（最大値のみ採用・スタッキング防止）
+    max_lamp = 0.0
+    for lla, llo in lamps:
+        d_m = _dist_km(g_lat, g_lng, lla, llo) * 1000
+        if d_m < 30:
+            max_lamp = max(max_lamp, 35 * (1 - d_m / 30))
+    score += max_lamp
+
+    # 排水口ボーナス（最大値のみ採用・スタッキング防止）
+    max_outfall = 0.0
+    for ola, olo in outfalls:
+        d_m = _dist_km(g_lat, g_lng, ola, olo) * 1000
+        if d_m < 20:
+            max_outfall = max(max_outfall, 30 * (1 - d_m / 20))
+    score += max_outfall
+
+    # 潮汐ボーナス（下げ潮が最高）
+    tide_current = tides.get("current", "") if tides else ""
+    if "下げ" in tide_current:   score += 20
+    elif "上げ" in tide_current: score += 15
+
+    # 時間帯ボーナス（夜が有利）
+    hour = datetime.now().hour
+    if 20 <= hour or hour <= 4:              score += 20   # 深夜
+    elif 18 <= hour <= 20 or 4 <= hour <= 7: score += 15   # マヅメ
+
+    # 橋脚・合流点付近でない場合はスコアを65以下に制限（赤=70+ を防ぐ）
+    if max_landmark_bonus < 20:
+        score = min(score, 65.0)
+
+    return min(100.0, score)
 
 # ── 関東全域川データ (SQLite永続化・バックグラウンド更新) ────────────────
 _KANTO_BBOX         = "34.8,138.0,37.2,141.2"   # 関東全域（利根川〜相模川）
@@ -800,12 +962,13 @@ def _get_river_features(lat: float, lng: float, radius_km: float) -> dict:
     return result
 
 def _interpolate_river(nodes: list, interval_km: float,
-                       c_lat: float, c_lng: float, radius_km: float, weirs: list) -> list:
-    """川ポリライン上に interval_km 間隔でポイントを生成（累積距離＋2分探索）。"""
+                       c_lat: float, c_lng: float, radius_km: float, weirs: list,
+                       bbox: tuple = None) -> list:
+    """川ポリライン上に interval_km 間隔でポイントを生成（累積距離＋2分探索）。
+    bbox=(s,w,n,e) を渡すと半径ではなくviewport矩形でフィルタ（半径制限撤廃）。"""
     if len(nodes) < 2:
         return []
 
-    # 累積距離配列
     cum = [0.0]
     for i in range(1, len(nodes)):
         cum.append(cum[-1] + _dist_km(nodes[i-1][0], nodes[i-1][1], nodes[i][0], nodes[i][1]))
@@ -818,15 +981,14 @@ def _interpolate_river(nodes: list, interval_km: float,
     n_segs  = len(nodes) - 1
 
     while target <= total + 1e-10:
-        # 2分探索で target が入るセグメントを特定
-        lo, hi = 0, n_segs - 1
-        while lo < hi:
-            mid = (lo + hi) // 2
+        lo2, hi2 = 0, n_segs - 1
+        while lo2 < hi2:
+            mid = (lo2 + hi2) // 2
             if cum[mid + 1] >= target:
-                hi = mid
+                hi2 = mid
             else:
-                lo = mid + 1
-        seg_i   = lo
+                lo2 = mid + 1
+        seg_i   = lo2
         seg_len = cum[seg_i + 1] - cum[seg_i]
         t = ((target - cum[seg_i]) / seg_len) if seg_len > 1e-10 else 0.0
         t = max(0.0, min(1.0, t))
@@ -834,8 +996,13 @@ def _interpolate_river(nodes: list, interval_km: float,
         g_la = nodes[seg_i][0] + t * (nodes[seg_i+1][0] - nodes[seg_i][0])
         g_lo = nodes[seg_i][1] + t * (nodes[seg_i+1][1] - nodes[seg_i][1])
 
-        # 検索範囲内かつ水門100m以内でない
-        if _dist_km(g_la, g_lo, c_lat, c_lng) <= radius_km:
+        # bbox指定時はviewport矩形フィルタ、なければ旧来の半径フィルタ
+        if bbox:
+            in_range = bbox[0] <= g_la <= bbox[2] and bbox[1] <= g_lo <= bbox[3]
+        else:
+            in_range = _dist_km(g_la, g_lo, c_lat, c_lng) <= radius_km
+
+        if in_range:
             if not any(_dist_km(g_la, g_lo, wla, wlo) < 0.1 for wla, wlo in weirs):
                 result.append({"lat": round(g_la, 5), "lng": round(g_lo, 5), "score": 1.0})
 
@@ -843,25 +1010,34 @@ def _interpolate_river(nodes: list, interval_km: float,
 
     return result
 
-def get_river_heatmap(lat: float, lng: float, zoom: int = 13) -> dict:
-    """シーバス川ヒートマップ: SQLiteから該当範囲の川のみ取得・ズーム別フィルタ"""
+def get_river_heatmap(lat: float, lng: float, zoom: int = 13,
+                      n: float = None, s: float = None,
+                      e: float = None, w: float = None) -> dict:
+    """シーバス川ヒートマップ: SQLiteから該当範囲の川のみ取得・精密スコアリング。
+    n/s/e/w が指定された場合はviewport全体を表示（半径制限撤廃）。"""
     import json as _json
 
-    radius_km  = _ZOOM_RADIUS_R.get(zoom, 9)
     interval_m = _ZOOM_INTERVAL.get(zoom, 50)
 
     # ズームレベルで表示する川の最小サイズを決定
     if zoom <= 12:
-        min_length = 10.0   # 大河川のみ（利根川・荒川・多摩川等）
+        min_length = 10.0   # 大河川のみ
     elif zoom <= 14:
         min_length = 1.0    # 中規模以上
     else:
-        min_length = 0.0    # 全川表示
+        min_length = 0.0    # 全川
 
-    pad_lat = radius_km / 111.0
-    pad_lng = radius_km / (111.0 * max(0.01, math.cos(math.radians(lat))))
-    s, n = lat - pad_lat, lat + pad_lat
-    w, e = lng - pad_lng, lng + pad_lng
+    # viewport boundsが指定された場合はそちらを優先（半径制限撤廃）
+    if n is not None and s is not None and e is not None and w is not None:
+        bbox_s, bbox_n, bbox_w, bbox_e = s, n, w, e
+        viewport_bbox = (bbox_s, bbox_w, bbox_n, bbox_e)  # (s, w, n, e)
+    else:
+        radius_km = _ZOOM_RADIUS_R.get(zoom, 9)
+        pad_lat   = radius_km / 111.0
+        pad_lng   = radius_km / (111.0 * max(0.01, math.cos(math.radians(lat))))
+        bbox_s, bbox_n = lat - pad_lat, lat + pad_lat
+        bbox_w, bbox_e = lng - pad_lng, lng + pad_lng
+        viewport_bbox = None  # レガシー：半径フィルタ
 
     with get_db() as conn:
         count = conn.execute("SELECT COUNT(*) FROM osm_rivers").fetchone()[0]
@@ -870,7 +1046,7 @@ def get_river_heatmap(lat: float, lng: float, zoom: int = 13) -> dict:
 
         sql    = ("SELECT name, width, length_km, nodes_json FROM osm_rivers "
                   "WHERE max_lat >= ? AND min_lat <= ? AND max_lng >= ? AND min_lng <= ?")
-        params = [s, n, w, e]
+        params = [bbox_s, bbox_n, bbox_w, bbox_e]
         if min_length > 0:
             sql    += " AND length_km >= ?"
             params.append(min_length)
@@ -878,7 +1054,7 @@ def get_river_heatmap(lat: float, lng: float, zoom: int = 13) -> dict:
 
         weir_rows = conn.execute(
             "SELECT lat, lng FROM osm_weirs WHERE lat BETWEEN ? AND ? AND lng BETWEEN ? AND ?",
-            (s, n, w, e)
+            (bbox_s, bbox_n, bbox_w, bbox_e)
         ).fetchall()
 
     weirs  = [(r["lat"], r["lng"]) for r in weir_rows]
@@ -888,18 +1064,40 @@ def get_river_heatmap(lat: float, lng: float, zoom: int = 13) -> dict:
         for r in river_rows
     ]
 
+    # スコアリング特徴量取得（キャッシュ優先・なければバックグラウンド取得）
+    bbox_str = f"{bbox_s:.3f},{bbox_w:.3f},{bbox_n:.3f},{bbox_e:.3f}"
+    bucket   = f"RSF_{bbox_str}"
+    if bucket in _river_score_cache:
+        _, scoring_feats = _river_score_cache[bucket]
+    else:
+        # キャッシュなし: バックグラウンドで取得開始し、今回はランドマークのみ使用
+        threading.Thread(target=_get_river_scoring_features, args=(bbox_str,), daemon=True).start()
+        scoring_feats = {"bridges": [], "lamps": [], "outfalls": [], "water_gates": []}
+    tides = get_tides()
+
+    radius_km = _ZOOM_RADIUS_R.get(zoom, 9)  # _interpolate_river レガシー用
     points:        list = []
     visible_names: list = []
     for river in rivers:
         if river.get("name"):
             visible_names.append(river["name"])
-        score = _width_to_score(river.get("width"), river.get("length_km"))
-        pts   = _interpolate_river(
-            river["nodes"], interval_m / 1000.0, lat, lng, radius_km, weirs
+        pts = _interpolate_river(
+            river["nodes"], interval_m / 1000.0,
+            lat, lng, radius_km, weirs,
+            bbox=viewport_bbox
         )
         for p in pts:
-            p["score"] = score
-        points.extend(pts)
+            raw = _score_seabass_point(p["lat"], p["lng"], scoring_feats, tides)
+            if raw < 20:
+                continue   # スコア20未満は非表示
+            # 0-100 → 0.0-1.0 正規化（色グラデーション対応）
+            if raw >= 70:
+                p["score"] = 0.7 + (raw - 70) / 30 * 0.3    # 赤
+            elif raw >= 40:
+                p["score"] = 0.3 + (raw - 40) / 30 * 0.4    # 橙
+            else:
+                p["score"] = (raw - 20) / 20 * 0.3           # 黄
+            points.append(p)
 
     river_names = list(dict.fromkeys(visible_names))
     return {
