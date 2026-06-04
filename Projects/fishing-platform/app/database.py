@@ -1171,12 +1171,12 @@ def _fetch_water_polygons(bbox_str: str) -> list:
             return data
 
     query = (
-        f"[out:json][timeout:30];\n("
+        f"[out:json][timeout:45];\n("
         f'way["natural"="water"]({bbox_str});'
         f'way["waterway"="riverbank"]({bbox_str});'
         f");\nout geom;"
     )
-    raw = _overpass_fetch_osm(query)
+    raw = _overpass_fetch_osm(query, timeout=50)  # ポリゴンデータは大きいため長めに
 
     polygons = []
     for el in raw.get("elements", []):
@@ -1203,7 +1203,7 @@ def _fetch_water_polygons(bbox_str: str) -> list:
                              nodes[i][0],   nodes[i][1]) for i in range(1, len(nodes)))
         # 明示タグ付き河川: 200m以上、それ以外: 400m以上（都市の小水域を除外）
         is_river = water_tag in ("river", "canal") or waterway_tag == "riverbank"
-        if perim < (0.2 if is_river else 0.4):
+        if perim < (0.05 if is_river else 0.3):  # 河川タグ付き: 50m以上, それ以外: 300m以上
             continue
         polygons.append({"nodes": nodes, "name": tags.get("name", "")})
 
@@ -1308,50 +1308,118 @@ def _build_shore_gradient_points(
     return points
 
 
-def _simplify_nodes(nodes: list, zoom: int) -> list:
-    """ズームに応じてポリゴンノードを間引く（Leaflet描画用）"""
-    step = max(1, {8:20, 9:16, 10:12, 11:8, 12:5, 13:3, 14:2, 15:1, 16:1, 17:1}.get(zoom, 4))
-    simplified = nodes[::step]
-    if len(simplified) >= 2 and simplified[0] != simplified[-1]:
-        simplified = simplified + [simplified[0]]
-    return simplified
+def _centerline_to_polygon(nodes: list, width_m: float) -> list:
+    """川中心線 + 川幅(m) → L.polygon 用の閉じたポリゴン座標を生成。
+    中心線の左右に half_width オフセットした点列を連結する。"""
+    if len(nodes) < 2:
+        return []
+    half_w = width_m / 2.0
+    left: list = []
+    right: list = []
+    n = len(nodes)
+    for i in range(n):
+        lat = nodes[i][0]
+        cos_lat = max(0.01, math.cos(math.radians(lat)))
+        # ノードiでの進行方向ベクトル（前後の平均）
+        if i == 0:
+            dlat = nodes[1][0] - nodes[0][0]
+            dlng = nodes[1][1] - nodes[0][1]
+        elif i == n - 1:
+            dlat = nodes[-1][0] - nodes[-2][0]
+            dlng = nodes[-1][1] - nodes[-2][1]
+        else:
+            dlat = nodes[i+1][0] - nodes[i-1][0]
+            dlng = nodes[i+1][1] - nodes[i-1][1]
+        dlat_m = dlat * 111000
+        dlng_m = dlng * 111000 * cos_lat
+        seg_len = math.sqrt(dlat_m**2 + dlng_m**2)
+        if seg_len < 0.001:
+            continue
+        # 90°回転して法線方向（左岸 / 右岸）へ half_w オフセット
+        perp_lat = (-dlng_m / seg_len * half_w) / 111000
+        perp_lng = (dlat_m / seg_len * half_w) / (111000 * cos_lat)
+        left.append([round(nodes[i][0] + perp_lat, 5), round(nodes[i][1] + perp_lng, 5)])
+        right.append([round(nodes[i][0] - perp_lat, 5), round(nodes[i][1] - perp_lng, 5)])
+    if len(left) < 2:
+        return []
+    return left + right[::-1] + [left[0]]  # 左岸→右岸逆順 で閉じる
 
 
 def get_water_polygon_data(bbox_s: float, bbox_n: float,
                             bbox_w: float, bbox_e: float, zoom: int) -> dict:
-    """L.polygon描画用: 水域ポリゴン境界座標を返す。
-    未キャッシュ時はバックグラウンドで取得開始しstatus='loading'を返す。"""
-    bbox_str = f"{round(bbox_s,2)},{round(bbox_w,2)},{round(bbox_n,2)},{round(bbox_e,2)}"
-    bucket   = f"WPG_{bbox_str}"
+    """SQLite川中心線から川幅付きL.polygonデータを生成（Overpass不使用）。
+    osm_rivers の width / length_km から幅を推定してポリゴン化する。"""
+    import json as _json
 
-    if bucket in _water_polygon_cache:
-        _, polygons = _water_polygon_cache[bucket]
+    if zoom <= 12:
+        min_length = 10.0
+    elif zoom <= 14:
+        min_length = 1.0
     else:
-        threading.Thread(target=_fetch_water_polygons, args=(bbox_str,), daemon=True).start()
-        return {"polygons": [], "count": 0, "status": "loading"}
+        min_length = 0.0
 
+    # ノード間引き間隔（ズームに応じて）
+    step = max(1, {8:12, 9:8, 10:6, 11:4, 12:3, 13:2, 14:1, 15:1}.get(zoom, 3))
+
+    with get_db() as conn:
+        count = conn.execute("SELECT COUNT(*) FROM osm_rivers").fetchone()[0]
+        if count == 0:
+            return {"polygons": [], "count": 0, "status": "no_data"}
+
+        sql = ("SELECT name, width, length_km, nodes_json FROM osm_rivers "
+               "WHERE max_lat >= ? AND min_lat <= ? AND max_lng >= ? AND min_lng <= ?")
+        params = [bbox_s, bbox_n, bbox_w, bbox_e]
+        if min_length > 0:
+            sql += " AND length_km >= ?"
+            params.append(min_length)
+        rows = conn.execute(sql, params).fetchall()
+
+    pad = 0.05
     result = []
-    for poly in polygons:
-        nodes = poly["nodes"]
-        simplified = _simplify_nodes(nodes, zoom)
-        if len(simplified) < 3:
+    for r in rows:
+        nodes_all = _json.loads(r["nodes_json"])
+        # ビューポート内のノードのみ使用（±pad度の余裕付き）
+        nodes = [n for n in nodes_all
+                 if bbox_s - pad <= n[0] <= bbox_n + pad
+                 and bbox_w - pad <= n[1] <= bbox_e + pad]
+        if len(nodes) < 2:
+            continue
+        # ノード間引き
+        nodes_s = nodes[::step]
+        if len(nodes_s) < 2:
+            nodes_s = nodes[:2]
+
+        # 川幅推定
+        w = r["width"]
+        if not w:
+            km = r["length_km"] or 0
+            if km >= 30: w = 250
+            elif km >= 10: w = 100
+            elif km >= 3:  w = 50
+            elif km >= 1:  w = 25
+            else:          w = 12
+
+        poly = _centerline_to_polygon(nodes_s, float(w))
+        if len(poly) < 3:
             continue
         result.append({
-            "coords": [[n[0], n[1]] for n in simplified],
-            "name":   poly.get("name", ""),
+            "coords":  poly,
+            "name":    r["name"] or "",
+            "width_m": int(w),
         })
 
     return {"polygons": result, "count": len(result), "status": "ok"}
 
-def _overpass_fetch_osm(query: str) -> dict:
-    """Overpass API取得（フォールバック付き）。"""
+def _overpass_fetch_osm(query: str, timeout: int = 28) -> dict:
+    """Overpass API取得（kumi優先・フォールバック付き）。"""
     import urllib.request, urllib.parse, json as _j
-    for srv in ["https://overpass-api.de/api/interpreter",
-                "https://overpass.kumi.systems/api/interpreter"]:
+    # kumi.systems を優先（overpass-api.de は現在接続拒否）
+    for srv in ["https://overpass.kumi.systems/api/interpreter",
+                "https://overpass-api.de/api/interpreter"]:
         try:
             url = f"{srv}?data={urllib.parse.quote(query)}"
             req = urllib.request.Request(url, headers={"User-Agent": "AnglerMap/5.0"})
-            with urllib.request.urlopen(req, timeout=22) as r:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
                 return _j.loads(r.read())
         except Exception:
             continue
