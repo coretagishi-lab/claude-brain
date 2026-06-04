@@ -4,7 +4,7 @@ current_status: active
 priority: medium
 due_date: ""
 review_waiting: false
-updated_at: 2026-06-05T15:55
+updated_at: 2026-06-05T16:30
 ---
 
 ## current_goal
@@ -66,7 +66,7 @@ updated_at: 2026-06-05T15:55
 - Nginx: ポート80リバースプロキシ → 8080
 
 ## next_action
-- http://133.88.117.175 でヒートマップを夜間（20時以降）に確認し、(1)関東全域の川が表示される (2)橋脚・合流点付近のみ赤く表示されることをtagishiに確認してもらう
+- http://133.88.117.175 でヒートマップを確認（夜間20時以降推奨）: (1)色が濃い青→赤で見えるか (2)移動すると自動更新されるか (3)橋脚・合流点付近のみ赤くなるか
 - 遊漁船の実DBデータ収集方法を決定してPhase 4を完了させる
 
 ## blocker
