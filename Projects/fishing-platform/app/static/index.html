@@ -473,6 +473,7 @@ let map, myMarker, myLat, myLng, postLat, postLng;
 let catchMarkers=[], tackleMarkers=[], boatMarkers=[], anglerMarkers=[];
 let heatLayer=null;
 let canvasHeatLayer=null;
+let heatmapDebounceTimer=null;
 let activeModes=new Set(['catches']), currentPeriod='all', filterSpecies='';
 let selectedPrivacy='area', selectedSpeciesForPost=null;
 let fishList=[];
@@ -596,7 +597,7 @@ function removeCanvasHeat(){
 
 function scoreToRgb(score){
   const t=Math.max(0,Math.min(1,score));
-  const stops=[[0,26,80,0],[0,80,200,130],[0,201,177,175],[245,166,35,205],[231,76,60,220],[180,30,20,235]];
+  const stops=[[0,50,160,90],[0,100,220,145],[0,201,177,180],[245,166,35,210],[231,76,60,225],[180,30,20,240]];
   const n=stops.length-1;
   const i=Math.min(Math.floor(t*n),n-1);
   const f=t*n-i;
@@ -642,7 +643,7 @@ function createCanvasHeatmap(map,points,opts){
         ctx.fill();
       }catch(e){}
     });
-    canvas.style.opacity='0.65';
+    canvas.style.opacity='0.75';
   }
 
   redraw();
@@ -746,7 +747,10 @@ async function renderHeatmap(){
     const lat=myLat||map.getCenter().lat;
     const lng=myLng||map.getCenter().lng;
     const zoom=map.getZoom();
-    const data=await fetch(`${API}/api/heatmap?lat=${lat}&lng=${lng}&zoom=${zoom}&fish=seabass`)
+    const b=map.getBounds();
+    const n=b.getNorth().toFixed(5),s=b.getSouth().toFixed(5);
+    const e=b.getEast().toFixed(5),w=b.getWest().toFixed(5);
+    const data=await fetch(`${API}/api/heatmap?lat=${lat}&lng=${lng}&zoom=${zoom}&n=${n}&s=${s}&e=${e}&w=${w}&fish=seabass`)
       .then(r=>r.json());
     if(!data||!data.points||!data.points.length){
       showToast('この範囲に川データなし');return;
@@ -758,6 +762,13 @@ async function renderHeatmap(){
     const names=(data.river_names||[]).slice(0,4).join('・');
     showToast(`🌡 シーバス川マップ: ${data.points.length}pt ${names?`(${names})`:''}`);
   }catch(e){console.error('heatmap:',e);showToast('ヒートマップ取得失敗','error');}
+}
+
+function scheduleHeatmapRefresh(){
+  clearTimeout(heatmapDebounceTimer);
+  heatmapDebounceTimer=setTimeout(()=>{
+    if(activeModes.has('heatmap')) renderHeatmap();
+  },700);
 }
 
 // ── Tackle shops ──────────────────────────────────────────────
@@ -1386,6 +1397,10 @@ function _updateDevCoords(){
     map.on('moveend',()=>{
       if(activeModes.has('catches')) loadCatches();
       if(activeModes.has('tackle')) loadTackleShops();
+      if(activeModes.has('heatmap')) scheduleHeatmapRefresh();
+    });
+    map.on('zoomend',()=>{
+      if(activeModes.has('heatmap')) scheduleHeatmapRefresh();
     });
     _hideLoading();
   });

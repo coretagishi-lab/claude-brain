@@ -1064,14 +1064,19 @@ def get_river_heatmap(lat: float, lng: float, zoom: int = 13,
         for r in river_rows
     ]
 
-    # スコアリング特徴量取得（キャッシュ優先・なければバックグラウンド取得）
-    bbox_str = f"{bbox_s:.3f},{bbox_w:.3f},{bbox_n:.3f},{bbox_e:.3f}"
-    bucket   = f"RSF_{bbox_str}"
-    if bucket in _river_score_cache:
-        _, scoring_feats = _river_score_cache[bucket]
+    # スコアリング特徴量取得（zoom>=12 かつ小エリアのみ・大エリアはランドマーク専用）
+    clat = (bbox_s + bbox_n) / 2
+    area_km2 = (bbox_n - bbox_s) * 111 * (bbox_e - bbox_w) * 111 * math.cos(math.radians(clat))
+    if zoom >= 12 and area_km2 <= 2000:
+        bbox_str = f"{bbox_s:.3f},{bbox_w:.3f},{bbox_n:.3f},{bbox_e:.3f}"
+        bucket   = f"RSF_{bbox_str}"
+        if bucket in _river_score_cache:
+            _, scoring_feats = _river_score_cache[bucket]
+        else:
+            threading.Thread(target=_get_river_scoring_features, args=(bbox_str,), daemon=True).start()
+            scoring_feats = {"bridges": [], "lamps": [], "outfalls": [], "water_gates": []}
     else:
-        # キャッシュなし: バックグラウンドで取得開始し、今回はランドマークのみ使用
-        threading.Thread(target=_get_river_scoring_features, args=(bbox_str,), daemon=True).start()
+        # 広域ビュー: ランドマークのみ使用（Overpass大量クエリを防止）
         scoring_feats = {"bridges": [], "lamps": [], "outfalls": [], "water_gates": []}
     tides = get_tides()
 
@@ -1088,15 +1093,15 @@ def get_river_heatmap(lat: float, lng: float, zoom: int = 13,
         )
         for p in pts:
             raw = _score_seabass_point(p["lat"], p["lng"], scoring_feats, tides)
-            if raw < 20:
-                continue   # スコア20未満は非表示
-            # 0-100 → 0.0-1.0 正規化（色グラデーション対応）
+            if raw < 10:
+                continue   # 水門除外（score=0）のみフィルタ
+            # 0-100 → 0.0-1.0 正規化
             if raw >= 70:
-                p["score"] = 0.7 + (raw - 70) / 30 * 0.3    # 赤
+                p["score"] = 0.7 + (raw - 70) / 30 * 0.3    # 赤: 橋脚・合流点
             elif raw >= 40:
-                p["score"] = 0.3 + (raw - 40) / 30 * 0.4    # 橙
+                p["score"] = 0.3 + (raw - 40) / 30 * 0.4    # 橙: 特徴物付近
             else:
-                p["score"] = (raw - 20) / 20 * 0.3           # 黄
+                p["score"] = (raw - 10) / 30 * 0.3           # 黄: 基本河川
             points.append(p)
 
     river_names = list(dict.fromkeys(visible_names))
