@@ -1064,6 +1064,27 @@ def get_river_heatmap(lat: float, lng: float, zoom: int = 13,
         for r in river_rows
     ]
 
+    # ── ポリゴン方式（natural=water 岸→中央グラデーション）──────────────
+    # キャッシュキー: 0.02度刻み（~2km）で近傍ビューを共有
+    poly_key    = f"{round(bbox_s,2)},{round(bbox_w,2)},{round(bbox_n,2)},{round(bbox_e,2)}"
+    poly_bucket = f"WPG_{poly_key}"
+    if poly_bucket in _water_polygon_cache:
+        _, polygons = _water_polygon_cache[poly_bucket]
+        if polygons:
+            poly_iv = {10:200,11:100,12:50,13:25,14:12,15:8}.get(zoom, 25)
+            pts   = _build_shore_gradient_points(
+                polygons, poly_iv, bbox_s, bbox_n, bbox_w, bbox_e)
+            names = list(dict.fromkeys(p["name"] for p in polygons if p.get("name")))
+            return {
+                "points": pts, "species": "シーバス", "water_based": True,
+                "river_count": len(polygons), "river_names": names[:20], "cache_age_min": 0,
+            }
+        # ポリゴンが空 → 中心線フォールバック
+    elif zoom >= 11:
+        # バックグラウンドでポリゴン取得（次回リクエストで反映）
+        threading.Thread(
+            target=_fetch_water_polygons, args=(poly_key,), daemon=True).start()
+
     # スコアリング特徴量取得（zoom>=12 かつ小エリアのみ・大エリアはランドマーク専用）
     clat = (bbox_s + bbox_n) / 2
     area_km2 = (bbox_n - bbox_s) * 111 * (bbox_e - bbox_w) * 111 * math.cos(math.radians(clat))
@@ -1131,8 +1152,150 @@ def _get_river_heatmap_legacy(lat: float, lng: float, zoom: int = 13) -> dict:
 
 # ── Phase 4+: 水辺限定ヒートマップ ───────────────────────────────
 
-_water_feat_cache: dict = {}
-_WATER_CACHE_TTL = 1800  # 30分キャッシュ
+_water_feat_cache:    dict = {}
+_WATER_CACHE_TTL    = 1800
+
+# ── Phase 6: 水域ポリゴンヒートマップ（岸→中央グラデーション）──────────
+
+_water_polygon_cache: dict = {}
+_WATER_POLYGON_TTL  = 1800  # 30分キャッシュ
+
+
+def _fetch_water_polygons(bbox_str: str) -> list:
+    """natural=water / waterway=riverbank ポリゴン境界をOverpassから取得"""
+    bucket = f"WPG_{bbox_str}"
+    now = _time.time()
+    if bucket in _water_polygon_cache:
+        ts, data = _water_polygon_cache[bucket]
+        if now - ts < _WATER_POLYGON_TTL:
+            return data
+
+    query = (
+        f"[out:json][timeout:30];\n("
+        f'way["natural"="water"]({bbox_str});'
+        f'way["waterway"="riverbank"]({bbox_str});'
+        f");\nout geom;"
+    )
+    raw = _overpass_fetch_osm(query)
+
+    polygons = []
+    for el in raw.get("elements", []):
+        if el.get("type") != "way":
+            continue
+        geom = el.get("geometry", [])
+        nodes = [(float(n["lat"]), float(n["lon"])) for n in geom
+                 if "lat" in n and "lon" in n]
+        if len(nodes) < 4:
+            continue
+        tags = el.get("tags", {})
+        # 池・湖・貯水池は除外（河川のみ対象）
+        water_tag = tags.get("water", "")
+        if water_tag in ("pond", "lake", "reservoir", "wastewater", "swimming_pool"):
+            continue
+        # 巨大水域を除外（東京湾等）
+        lats = [n[0] for n in nodes]
+        lngs = [n[1] for n in nodes]
+        if (max(lats) - min(lats)) * 111 * (max(lngs) - min(lngs)) * 91 > 100:
+            continue
+        # 小水域（< 150m）を除外
+        perim = sum(_dist_km(nodes[i-1][0], nodes[i-1][1],
+                             nodes[i][0],   nodes[i][1]) for i in range(1, len(nodes)))
+        if perim < 0.15:
+            continue
+        polygons.append({"nodes": nodes, "name": tags.get("name", "")})
+
+    _water_polygon_cache[bucket] = (_time.time(), polygons)
+    return polygons
+
+
+def _perimeter_sample_poly(nodes: list, interval_m: float) -> list:
+    """ポリゴン境界を interval_m 間隔でサンプリング"""
+    if len(nodes) < 2:
+        return []
+    interval_km = interval_m / 1000.0
+    cum = [0.0]
+    for i in range(1, len(nodes)):
+        cum.append(cum[-1] + _dist_km(nodes[i-1][0], nodes[i-1][1],
+                                       nodes[i][0],   nodes[i][1]))
+    total = cum[-1]
+    if total < 1e-9:
+        return []
+    n_segs = len(nodes) - 1
+    result = []
+    target = 0.0
+    while target <= total + 1e-9:
+        lo, hi = 0, n_segs - 1
+        while lo < hi:
+            mid = (lo + hi) // 2
+            if cum[mid + 1] >= target:
+                hi = mid
+            else:
+                lo = mid + 1
+        seg_len = cum[lo + 1] - cum[lo]
+        t = max(0.0, min(1.0, (target - cum[lo]) / seg_len if seg_len > 1e-9 else 0.0))
+        la  = nodes[lo][0] + t * (nodes[lo+1][0] - nodes[lo][0])
+        lo_ = nodes[lo][1] + t * (nodes[lo+1][1] - nodes[lo][1])
+        result.append((la, lo_))
+        target += interval_km
+    return result
+
+
+def _offset_toward(lat: float, lng: float,
+                    to_lat: float, to_lng: float, offset_m: float) -> tuple:
+    """(lat,lng) を (to_lat,to_lng) 方向に offset_m メートル移動"""
+    mid = (lat + to_lat) / 2
+    dlat_m = (to_lat - lat) * 111000
+    dlng_m = (to_lng - lng) * 111000 * math.cos(math.radians(mid))
+    dist_m = math.sqrt(dlat_m ** 2 + dlng_m ** 2)
+    if dist_m < 0.5:
+        return lat, lng
+    new_lat = lat + dlat_m / dist_m * offset_m / 111000
+    new_lng = lng + dlng_m / dist_m * offset_m / (111000 * math.cos(math.radians(lat)))
+    return round(new_lat, 5), round(new_lng, 5)
+
+
+def _build_shore_gradient_points(
+    polygons: list, interval_m: float,
+    bbox_s: float, bbox_n: float, bbox_w: float, bbox_e: float,
+) -> list:
+    """水域ポリゴンから岸→中央グラデーションのポイントを生成。
+    岸=赤(0.92)、中央=青(0.07)。川幅に応じてオフセット数を自動調整。"""
+    GRADIENT = [
+        (0,   0.92),   # 岸: 赤
+        (8,   0.82),   # 8m: 橙
+        (30,  0.55),   # 30m: 黄緑
+        (80,  0.22),   # 80m: 青緑
+        (200, 0.07),   # 200m: 青（大河川の中央のみ）
+    ]
+    pad = 0.003
+    points: list = []
+    seen:   set  = set()
+
+    for poly in polygons:
+        nodes = poly["nodes"]
+        if len(nodes) < 4:
+            continue
+        clat = sum(n[0] for n in nodes) / len(nodes)
+        clng = sum(n[1] for n in nodes) / len(nodes)
+
+        for (bla, blo) in _perimeter_sample_poly(nodes, interval_m):
+            if not (bbox_s - pad <= bla <= bbox_n + pad and
+                    bbox_w - pad <= blo <= bbox_e + pad):
+                continue
+            d_to_center_m = _dist_km(bla, blo, clat, clng) * 1000
+
+            for offset_m, score in GRADIENT:
+                if offset_m >= d_to_center_m * 0.85:
+                    break  # 川幅の85%超は反対岸を超えるためスキップ
+                pla, plo = (bla, blo) if offset_m == 0 else \
+                    _offset_toward(bla, blo, clat, clng, offset_m)
+                key = (int(pla * 8000), int(plo * 8000))  # ~14m グリッドで重複排除
+                if key in seen:
+                    continue
+                seen.add(key)
+                points.append({"lat": pla, "lng": plo, "score": score})
+
+    return points
 
 def _overpass_fetch_osm(query: str) -> dict:
     """Overpass API取得（フォールバック付き）。"""
