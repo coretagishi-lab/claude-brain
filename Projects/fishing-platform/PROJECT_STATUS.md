@@ -4,7 +4,7 @@ current_status: active
 priority: medium
 due_date: ""
 review_waiting: false
-updated_at: 2026-06-04
+updated_at: 2026-06-05
 ---
 
 ## current_goal
@@ -66,8 +66,8 @@ updated_at: 2026-06-04
 - Nginx: ポート80リバースプロキシ → 8080
 
 ## next_action
+- http://133.88.117.175 でヒートマップを夜間（20時以降）に確認し、橋脚・合流点付近が赤く表示されることをtagishiに確認してもらう
 - 遊漁船の実DBデータ収集方法を決定してPhase 4を完了させる
-- https://133.88.117.175 でアプリを確認してUXフィードバックをもらう
 
 ## blocker
 - ConoHaセキュリティグループでポート8080が閉鎖中（Nginx経由ポート80でアクセス可）
