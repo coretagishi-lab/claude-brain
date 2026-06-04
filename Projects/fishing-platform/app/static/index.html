@@ -756,7 +756,7 @@ async function renderHeatmap(){
     const lng=myLng||map.getCenter().lng;
     const zoom=map.getZoom();
     const b=map.getBounds();
-    const pad=0.1;
+    const pad=0.02;
     const n=(b.getNorth()+pad).toFixed(5);
     const s=(b.getSouth()-pad).toFixed(5);
     const e=(b.getEast() +pad).toFixed(5);

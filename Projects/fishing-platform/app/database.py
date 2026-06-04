@@ -1188,19 +1188,22 @@ def _fetch_water_polygons(bbox_str: str) -> list:
         if len(nodes) < 4:
             continue
         tags = el.get("tags", {})
-        # 池・湖・貯水池は除外（河川のみ対象）
-        water_tag = tags.get("water", "")
-        if water_tag in ("pond", "lake", "reservoir", "wastewater", "swimming_pool"):
+        # 明確に非河川タグは除外
+        water_tag    = tags.get("water",    "")
+        waterway_tag = tags.get("waterway", "")
+        if water_tag in ("pond", "lake", "reservoir", "wastewater",
+                         "swimming_pool", "fountain", "basin", "moat"):
             continue
         # 巨大水域を除外（東京湾等）
         lats = [n[0] for n in nodes]
         lngs = [n[1] for n in nodes]
         if (max(lats) - min(lats)) * 111 * (max(lngs) - min(lngs)) * 91 > 100:
             continue
-        # 小水域（< 150m）を除外
         perim = sum(_dist_km(nodes[i-1][0], nodes[i-1][1],
                              nodes[i][0],   nodes[i][1]) for i in range(1, len(nodes)))
-        if perim < 0.15:
+        # 明示タグ付き河川: 200m以上、それ以外: 400m以上（都市の小水域を除外）
+        is_river = water_tag in ("river", "canal") or waterway_tag == "riverbank"
+        if perim < (0.2 if is_river else 0.4):
             continue
         polygons.append({"nodes": nodes, "name": tags.get("name", "")})
 
@@ -1267,6 +1270,11 @@ def _build_shore_gradient_points(
         (80,  0.22),   # 80m: 青緑
         (200, 0.07),   # 200m: 青（大河川の中央のみ）
     ]
+    MAX_POINTS = 18000  # canvas描画の上限
+
+    # ポリゴン数に応じてインターバルを自動調整（多すぎる場合は間引く）
+    adaptive_iv = max(interval_m, interval_m * len(polygons) // 20)
+
     pad = 0.003
     points: list = []
     seen:   set  = set()
@@ -1278,7 +1286,7 @@ def _build_shore_gradient_points(
         clat = sum(n[0] for n in nodes) / len(nodes)
         clng = sum(n[1] for n in nodes) / len(nodes)
 
-        for (bla, blo) in _perimeter_sample_poly(nodes, interval_m):
+        for (bla, blo) in _perimeter_sample_poly(nodes, adaptive_iv):
             if not (bbox_s - pad <= bla <= bbox_n + pad and
                     bbox_w - pad <= blo <= bbox_e + pad):
                 continue
@@ -1286,7 +1294,7 @@ def _build_shore_gradient_points(
 
             for offset_m, score in GRADIENT:
                 if offset_m >= d_to_center_m * 0.85:
-                    break  # 川幅の85%超は反対岸を超えるためスキップ
+                    break
                 pla, plo = (bla, blo) if offset_m == 0 else \
                     _offset_toward(bla, blo, clat, clng, offset_m)
                 key = (int(pla * 8000), int(plo * 8000))  # ~14m グリッドで重複排除
@@ -1294,6 +1302,8 @@ def _build_shore_gradient_points(
                     continue
                 seen.add(key)
                 points.append({"lat": pla, "lng": plo, "score": score})
+                if len(points) >= MAX_POINTS:
+                    return points
 
     return points
 
