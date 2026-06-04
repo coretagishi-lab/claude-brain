@@ -61,13 +61,11 @@ html,body{height:100%;background:var(--navy);color:var(--text);font-family:-appl
   border:1px solid rgba(0,201,177,0.2);font-size:0.72rem;color:var(--gray);cursor:pointer;transition:all .15s;white-space:nowrap}
 .mode-pill.active{background:rgba(0,201,177,0.18);border-color:var(--teal);color:var(--teal)}
 
-/* ── Row3: 期間 / Row4: 魚種 ── */
-#period-row-wrap,#species-row-wrap{position:fixed;left:0;right:0;z-index:9;
+/* ── Row4: 魚種フィルター ── */
+#species-row-wrap{position:fixed;left:0;right:0;z-index:9;top:128px;
   padding:0 12px;overflow-x:auto;scrollbar-width:none;transition:opacity .2s}
-#period-row-wrap::-webkit-scrollbar,#species-row-wrap::-webkit-scrollbar{display:none}
-#period-row-wrap{top:128px}
-#species-row-wrap{top:164px}
-#period-row-wrap.hidden,#species-row-wrap.hidden{opacity:0;pointer-events:none}
+#species-row-wrap::-webkit-scrollbar{display:none}
+#species-row-wrap.hidden{opacity:0;pointer-events:none}
 .filter-row{display:flex;gap:5px}
 .filter-row::-webkit-scrollbar{display:none}
 .fpill{flex-shrink:0;padding:3px 10px;border-radius:12px;border:1px solid rgba(255,255,255,0.1);cursor:pointer;
@@ -324,16 +322,7 @@ input[type=file]{display:none}
   <div class="mode-pill" data-mode="anglers">🎣 釣行中</div>
 </div>
 
-<!-- Row3: 期間フィルター top:128px -->
-<div id="period-row-wrap">
-  <div class="filter-row" id="period-row">
-    <button class="fpill active" data-period="all">全期間</button>
-    <button class="fpill" data-period="1m">月間</button>
-    <button class="fpill" data-period="3m">3ヶ月</button>
-    <button class="fpill" data-period="1y">1年</button>
-  </div>
-</div>
-<!-- Row4: 魚種フィルター top:164px -->
+<!-- Row4: 魚種フィルター top:128px (期間フィルター削除) -->
 <div id="species-row-wrap">
   <div class="filter-row" id="species-row">
     <button class="fpill active" data-species="">全魚種</button>
@@ -609,26 +598,33 @@ function removeCanvasHeat(){
 }
 
 function scoreToRgb(score){
+  // サーモグラフィー配色（0-15:透明 → 青 → 緑 → 黄 → 橙 → 赤）
   const t=Math.max(0,Math.min(1,score));
-  // 青(低)→シアン→緑→琥珀→橙→赤(高)  α: 0.70→0.90
-  const stops=[
-    [0,  100,255,178],  // 0.0 blue   α=0.70
-    [0,  210,255,188],  // 0.2 cyan   α=0.74
-    [60, 220, 60,198],  // 0.4 green  α=0.78
-    [255,200,  0,212],  // 0.6 amber  α=0.83
-    [255, 80,  0,222],  // 0.8 orange α=0.87
-    [255, 30, 30,230],  // 1.0 red    α=0.90
+  if(t<0.15) return [0,0,0,0];
+  // キーポイント: [score, [r,g,b,a]]
+  const kp=[
+    [0.15,[  0,  0,180,  0]],  // 0.15: 深青(透明)
+    [0.30,[  0,  0,180,128]],  // 0.30: 深青
+    [0.45,[  0,150,255,153]],  // 0.45: 水色
+    [0.55,[  0,230,100,166]],  // 0.55: 緑
+    [0.65,[150,255,  0,179]],  // 0.65: 黄緑
+    [0.75,[255,220,  0,191]],  // 0.75: 黄
+    [0.85,[255,120,  0,204]],  // 0.85: 橙
+    [1.00,[255, 20,  0,217]],  // 1.00: 赤
   ];
-  const n=stops.length-1;
-  const i=Math.min(Math.floor(t*n),n-1);
-  const f=t*n-i;
-  const c0=stops[i],c1=stops[i+1];
-  return [
-    Math.round(c0[0]+(c1[0]-c0[0])*f),
-    Math.round(c0[1]+(c1[1]-c0[1])*f),
-    Math.round(c0[2]+(c1[2]-c0[2])*f),
-    Math.round(c0[3]+(c1[3]-c0[3])*f),
-  ];
+  for(let i=0;i<kp.length-1;i++){
+    const [t0,c0]=kp[i],[t1,c1]=kp[i+1];
+    if(t>=t0&&t<=t1){
+      const f=(t-t0)/(t1-t0);
+      return [
+        Math.round(c0[0]+(c1[0]-c0[0])*f),
+        Math.round(c0[1]+(c1[1]-c0[1])*f),
+        Math.round(c0[2]+(c1[2]-c0[2])*f),
+        Math.round(c0[3]+(c1[3]-c0[3])*f),
+      ];
+    }
+  }
+  return kp[kp.length-1][1];
 }
 
 function createCanvasHeatmap(map,points,opts){
@@ -665,7 +661,7 @@ function createCanvasHeatmap(map,points,opts){
         ctx.fill();
       }catch(e){}
     });
-    canvas.style.opacity='0.92';
+    canvas.style.opacity='1.0';
   }
 
   redraw();
@@ -767,59 +763,39 @@ function addCatchPin(c){
   catchMarkers.push(m);
 }
 
-// ── Heatmap: Leaflet.GeoJSON で川面を塗りつぶし ─────────────────
-async function renderHeatmap(){
+// ── Heatmap: サーモグラフィー Canvas ─────────────────────────────
+async function renderHeatmap(silent=false){
   removeCanvasHeat();
   removeRiverPolygons();
   try{
-    // GeoJSONを初回だけ読み込み・bboxを事前計算してキャッシュ
-    if(!riverGeoData){
-      showToast('🌡 川データ読み込み中...');
-      const res=await fetch('/data/kanto_rivers.geojson');
-      riverGeoData=await res.json();
-      // 各ポリゴンのbboxを事前計算（フィルタ高速化）
-      riverGeoData.features.forEach(f=>{
-        const cs=f.geometry.coordinates[0];
-        let minLat=90,maxLat=-90,minLng=180,maxLng=-180;
-        cs.forEach(c=>{
-          if(c[1]<minLat)minLat=c[1]; if(c[1]>maxLat)maxLat=c[1];
-          if(c[0]<minLng)minLng=c[0]; if(c[0]>maxLng)maxLng=c[0];
-        });
-        f._bbox=[minLng,minLat,maxLng,maxLat];
-      });
-    }
-
-    // 現在のビューポートに含まれるポリゴンだけ描画
+    const lat=myLat||map.getCenter().lat;
+    const lng=myLng||map.getCenter().lng;
+    const zoom=map.getZoom();
     const b=map.getBounds();
-    const s=b.getSouth(), n=b.getNorth(), w=b.getWest(), e=b.getEast();
-    const filtered={
-      type:'FeatureCollection',
-      features:riverGeoData.features.filter(f=>{
-        const [fl,fb,fr,ft]=f._bbox;
-        return ft>=s && fb<=n && fr>=w && fl<=e;
-      })
-    };
-    if(!filtered.features.length){showToast('この範囲に川データなし');return;}
-
-    const layer=L.geoJSON(filtered,{
-      style:{
-        fillColor:'#0064ff',   // 川中央: 青
-        fillOpacity:0.35,
-        color:'#ff1e1e',       // 岸: 赤
-        weight:5,
-        opacity:0.80,
-        smoothFactor:1.5,
-      }
-    }).addTo(map);
-    riverPolygonLayers.push(layer);
-    showToast(`🌡 ${filtered.features.length}水域 描画完了`);
-  }catch(e){console.error('heatmap:',e);showToast('川データ取得失敗','error');}
+    const pad=0.02;
+    const params=new URLSearchParams({
+      lat,lng,zoom,
+      n:(b.getNorth()+pad).toFixed(5), s:(b.getSouth()-pad).toFixed(5),
+      e:(b.getEast() +pad).toFixed(5), w:(b.getWest() -pad).toFixed(5),
+      fish:'seabass'
+    });
+    const data=await fetch(`${API}/api/heatmap?${params}`).then(r=>r.json());
+    if(!data||!data.points||!data.points.length) return;
+    // パッチ状になるよう大きめのradius
+    canvasHeatLayer=createCanvasHeatmap(map,data.points,{
+      radiusFn: z=>Math.max(22,Math.min(70,z*7-60))
+    });
+    if(!silent){
+      const names=(data.river_names||[]).slice(0,3).join('・');
+      showToast(`🌡 ${data.points.length}pt ${names?`(${names})`:''}`);
+    }
+  }catch(e){console.error('heatmap:',e);}
 }
 
 function scheduleHeatmapRefresh(){
   clearTimeout(heatmapDebounceTimer);
   heatmapDebounceTimer=setTimeout(()=>{
-    if(activeModes.has('heatmap')) renderHeatmap();
+    if(activeModes.has('heatmap')) renderHeatmap(true); // silent: ptトースト非表示
   },700);
 }
 
@@ -1216,19 +1192,8 @@ document.querySelectorAll('.mode-pill').forEach(p=>p.addEventListener('click',()
     else if(mode==='boats') renderBoats();
     else if(mode==='anglers') loadFishingAnglers();
   }
-  const showPeriod=activeModes.has('catches')||activeModes.has('heatmap');
-  const showSpecies=activeModes.has('catches')&&!activeModes.has('heatmap');
-  document.getElementById('period-row-wrap')?.classList.toggle('hidden',!showPeriod);
+  const showSpecies=activeModes.has('catches');
   document.getElementById('species-row-wrap')?.classList.toggle('hidden',!showSpecies);
-}));
-
-// Period filter
-document.querySelectorAll('#period-row .fpill').forEach(btn=>btn.addEventListener('click',()=>{
-  document.querySelectorAll('#period-row .fpill').forEach(b=>b.classList.remove('active'));
-  btn.classList.add('active'); currentPeriod=btn.dataset.period;
-  // 釣果・ヒートマップのみ再描画
-  if(activeModes.has('catches')){catchMarkers.forEach(m=>map.removeLayer(m));catchMarkers=[];loadCatches();}
-  if(activeModes.has('heatmap')){if(heatLayer){map.removeLayer(heatLayer);heatLayer=null;}removeCanvasHeat();removeRiverPolygons();renderHeatmap();}
 }));
 
 // Nav
@@ -1347,7 +1312,6 @@ const _DEV_ELS=[
   {id:'logo',            label:'.logo',             dir:'tl'},
   {id:'stat-wrap',       label:'#stat-wrap',         dir:'tr'},
   {id:'mode-bar',        label:'#mode-bar',          dir:'t'},
-  {id:'period-row-wrap', label:'#period-row-wrap',   dir:'t'},
   {id:'species-row-wrap',label:'#species-row-wrap',  dir:'t'},
   {id:'tide-card',       label:'#tide-card',         dir:'bl'},
   {id:'fab',             label:'#fab',               dir:'br'},

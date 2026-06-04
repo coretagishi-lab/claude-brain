@@ -1064,26 +1064,24 @@ def get_river_heatmap(lat: float, lng: float, zoom: int = 13,
         for r in river_rows
     ]
 
-    # ── ポリゴン方式（natural=water 岸→中央グラデーション）──────────────
-    # キャッシュキー: 0.02度刻み（~2km）で近傍ビューを共有
-    poly_key    = f"{round(bbox_s,2)},{round(bbox_w,2)},{round(bbox_n,2)},{round(bbox_e,2)}"
-    poly_bucket = f"WPG_{poly_key}"
-    if poly_bucket in _water_polygon_cache:
-        _, polygons = _water_polygon_cache[poly_bucket]
-        if polygons:
+    # ── ポリゴン方式（SQLite中心線→ポリゴン→岸→中央グラデーション）──────
+    # Overpass不使用・SQLiteから即座に生成（サーモグラフィー用スコア点列）
+    if zoom >= 11:
+        poly_data = get_water_polygon_data(bbox_s, bbox_n, bbox_w, bbox_e, zoom)
+        if poly_data.get("count", 0) > 0:
+            poly_polygons = [
+                {"nodes": p["coords"], "name": p.get("name", "")}
+                for p in poly_data["polygons"]
+            ]
             poly_iv = {10:200,11:100,12:50,13:25,14:12,15:8}.get(zoom, 25)
             pts   = _build_shore_gradient_points(
-                polygons, poly_iv, bbox_s, bbox_n, bbox_w, bbox_e)
-            names = list(dict.fromkeys(p["name"] for p in polygons if p.get("name")))
+                poly_polygons, poly_iv, bbox_s, bbox_n, bbox_w, bbox_e)
+            names = list(dict.fromkeys(
+                p.get("name","") for p in poly_data["polygons"] if p.get("name")))
             return {
                 "points": pts, "species": "シーバス", "water_based": True,
-                "river_count": len(polygons), "river_names": names[:20], "cache_age_min": 0,
+                "river_count": poly_data["count"], "river_names": names[:20], "cache_age_min": 0,
             }
-        # ポリゴンが空 → 中心線フォールバック
-    elif zoom >= 11:
-        # バックグラウンドでポリゴン取得（次回リクエストで反映）
-        threading.Thread(
-            target=_fetch_water_polygons, args=(poly_key,), daemon=True).start()
 
     # スコアリング特徴量取得（zoom>=12 かつ小エリアのみ・大エリアはランドマーク専用）
     clat = (bbox_s + bbox_n) / 2
