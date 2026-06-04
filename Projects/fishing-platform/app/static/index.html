@@ -85,9 +85,9 @@ html,body{height:100%;background:var(--navy);color:var(--text);font-family:-appl
 #ai-btn{bottom:260px}
 #fishing-btn{bottom:200px}
 #my-loc-btn{bottom:140px}
-#zoom-btns{position:fixed;right:16px;top:50%;transform:translateY(-50%);z-index:11;display:flex;flex-direction:column;gap:5px}
-.zbtn{width:40px;height:34px;border-radius:9px;border:1px solid rgba(0,201,177,0.2);background:rgba(10,22,40,0.92);backdrop-filter:blur(8px);color:var(--gray);font-size:0.62rem;font-weight:700;cursor:pointer;font-family:inherit;line-height:1}
-.zbtn:active{background:rgba(0,201,177,0.2);border-color:var(--teal);color:var(--teal)}
+#zoom-btns{position:fixed;right:70px;top:50%;transform:translateY(-50%);z-index:12;display:flex;flex-direction:column;gap:5px}
+.zbtn{width:44px;height:38px;border-radius:10px;border:none;background:rgba(0,0,0,0.60);backdrop-filter:blur(6px);color:#fff;font-size:0.68rem;font-weight:700;cursor:pointer;font-family:inherit;line-height:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px}
+.zbtn:active,.zbtn:focus{background:rgba(0,201,177,0.75);outline:none}
 
 /* ── TIDE CARD ── */
 #tide-card{position:fixed;bottom:80px;left:12px;z-index:10;
@@ -352,13 +352,13 @@ input[type=file]{display:none}
   <button class="map-btn" id="fishing-btn" title="釣行中ON/OFF">🎣</button>
   <button class="map-btn" id="ai-btn" title="AI釣りポイント提案">🤖</button>
 </div>
-<!-- Zoom buttons (5 levels) -->
+<!-- Zoom buttons (5 levels) right:70px, vertical center -->
 <div id="zoom-btns">
-  <button class="zbtn" data-zoom="8"  title="最大引き（全国）">全</button>
-  <button class="zbtn" data-zoom="10" title="広域">広</button>
-  <button class="zbtn" data-zoom="13" title="標準">標</button>
-  <button class="zbtn" data-zoom="15" title="詳細">詳</button>
-  <button class="zbtn" data-zoom="17" title="最大拡大">拡</button>
+  <button class="zbtn" data-zoom="8"  title="関東全域 z8" ><span style="font-size:1rem">🗾</span></button>
+  <button class="zbtn" data-zoom="10" title="広域 z10"    ><span>z10</span></button>
+  <button class="zbtn" data-zoom="13" title="標準 z13"    ><span>z13</span></button>
+  <button class="zbtn" data-zoom="15" title="詳細 z15"    ><span>z15</span></button>
+  <button class="zbtn" data-zoom="17" title="最大 z17"    ><span>z17</span></button>
 </div>
 
 <!-- Tide card -->
@@ -485,6 +485,7 @@ let catchMarkers=[], tackleMarkers=[], boatMarkers=[], anglerMarkers=[];
 let heatLayer=null;
 let canvasHeatLayer=null;
 let riverPolygonLayers=[];
+let riverGeoData=null;   // kanto_rivers.geojson キャッシュ
 let heatmapDebounceTimer=null;
 let activeModes=new Set(['catches']), currentPeriod='all', filterSpecies='';
 let selectedPrivacy='area', selectedSpeciesForPost=null;
@@ -766,45 +767,53 @@ function addCatchPin(c){
   catchMarkers.push(m);
 }
 
-// ── Heatmap: L.polygon で川面を塗りつぶし ───────────────────────
+// ── Heatmap: Leaflet.GeoJSON で川面を塗りつぶし ─────────────────
 async function renderHeatmap(){
   removeCanvasHeat();
   removeRiverPolygons();
   try{
-    const b=map.getBounds();
-    const pad=0.02;
-    const zoom=map.getZoom();
-    const params=new URLSearchParams({
-      n:(b.getNorth()+pad).toFixed(5), s:(b.getSouth()-pad).toFixed(5),
-      e:(b.getEast() +pad).toFixed(5), w:(b.getWest() -pad).toFixed(5),
-      zoom
-    });
-    const data=await fetch(`${API}/api/river-polygons?${params}`).then(r=>r.json());
-
-    if(data.status==='loading'){
-      showToast('🌡 川ポリゴン取得中...');
-      clearTimeout(heatmapDebounceTimer);
-      heatmapDebounceTimer=setTimeout(()=>{
-        if(activeModes.has('heatmap')) renderHeatmap();
-      },12000);
-      return;
+    // GeoJSONを初回だけ読み込み・bboxを事前計算してキャッシュ
+    if(!riverGeoData){
+      showToast('🌡 川データ読み込み中...');
+      const res=await fetch('/data/kanto_rivers.geojson');
+      riverGeoData=await res.json();
+      // 各ポリゴンのbboxを事前計算（フィルタ高速化）
+      riverGeoData.features.forEach(f=>{
+        const cs=f.geometry.coordinates[0];
+        let minLat=90,maxLat=-90,minLng=180,maxLng=-180;
+        cs.forEach(c=>{
+          if(c[1]<minLat)minLat=c[1]; if(c[1]>maxLat)maxLat=c[1];
+          if(c[0]<minLng)minLng=c[0]; if(c[0]>maxLng)maxLng=c[0];
+        });
+        f._bbox=[minLng,minLat,maxLng,maxLat];
+      });
     }
-    if(!data.polygons||!data.polygons.length){showToast('この範囲に川データなし');return;}
 
-    data.polygons.forEach(poly=>{
-      if(!poly.coords||poly.coords.length<3) return;
-      const layer=L.polygon(poly.coords,{
+    // 現在のビューポートに含まれるポリゴンだけ描画
+    const b=map.getBounds();
+    const s=b.getSouth(), n=b.getNorth(), w=b.getWest(), e=b.getEast();
+    const filtered={
+      type:'FeatureCollection',
+      features:riverGeoData.features.filter(f=>{
+        const [fl,fb,fr,ft]=f._bbox;
+        return ft>=s && fb<=n && fr>=w && fl<=e;
+      })
+    };
+    if(!filtered.features.length){showToast('この範囲に川データなし');return;}
+
+    const layer=L.geoJSON(filtered,{
+      style:{
         fillColor:'#0064ff',   // 川中央: 青
         fillOpacity:0.35,
         color:'#ff1e1e',       // 岸: 赤
-        weight:6,
+        weight:5,
         opacity:0.80,
         smoothFactor:1.5,
-      }).addTo(map);
-      riverPolygonLayers.push(layer);
-    });
-    showToast(`🌡 ${data.count}水域 描画完了`);
-  }catch(e){console.error('heatmap:',e);}
+      }
+    }).addTo(map);
+    riverPolygonLayers.push(layer);
+    showToast(`🌡 ${filtered.features.length}水域 描画完了`);
+  }catch(e){console.error('heatmap:',e);showToast('川データ取得失敗','error');}
 }
 
 function scheduleHeatmapRefresh(){
