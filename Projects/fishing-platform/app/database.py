@@ -632,7 +632,7 @@ def get_ecological_heatmap(lat: float, lng: float, species: str = "シーバス"
 _river_cache:    dict = {}
 _RIVER_CACHE_TTL = 7200  # 2時間（川データは変わらない）
 
-_ZOOM_INTERVAL = {10:400, 11:200, 12:100, 13:50, 14:20, 15:10}   # m/点
+_ZOOM_INTERVAL = {10:400, 11:200, 12:100, 13:50, 14:20, 15:10, 16:5, 17:3}   # m/点
 _ZOOM_RADIUS_R = {10:28,  11:20,  12:13,  13:9,   14:6,  15:3}   # km（レガシー用）
 
 # ── シーバス精密スコアリング ─────────────────────────────────────────
@@ -816,11 +816,13 @@ def _fetch_kanto_rivers_all() -> dict:
         ww    = tags.get("waterway", "")
         etype = el.get("type", "")
         if etype == "way" and ww == "river":
+            if tags.get("tunnel") == "yes" or tags.get("covered") == "yes":
+                continue
             w_str = tags.get("width") or tags.get("est_width") or ""
             width = None
             try:
                 width = float(w_str.split()[0])
-                if width < 5:
+                if width < 3:
                     continue
             except Exception:
                 pass
@@ -938,10 +940,12 @@ def _get_river_features(lat: float, lng: float, radius_km: float) -> dict:
         etype = el.get("type", "")
 
         if etype == "way" and ww == "river":
-            # 幅5m未満は除外（タグがなければ通す）
+            if tags.get("tunnel") == "yes" or tags.get("covered") == "yes":
+                continue
+            # 幅3m未満は除外（タグがなければ通す）
             w_str = tags.get("width") or tags.get("est_width") or ""
             try:
-                if float(w_str.split()[0]) < 5:
+                if float(w_str.split()[0]) < 3:
                     continue
             except Exception:
                 pass
@@ -1064,26 +1068,7 @@ def get_river_heatmap(lat: float, lng: float, zoom: int = 13,
         for r in river_rows
     ]
 
-    # ── ポリゴン方式（SQLite中心線→ポリゴン→岸→中央グラデーション）──────
-    # Overpass不使用・SQLiteから即座に生成（サーモグラフィー用スコア点列）
-    if zoom >= 11:
-        poly_data = get_water_polygon_data(bbox_s, bbox_n, bbox_w, bbox_e, zoom)
-        if poly_data.get("count", 0) > 0:
-            poly_polygons = [
-                {"nodes": p["coords"], "name": p.get("name", "")}
-                for p in poly_data["polygons"]
-            ]
-            poly_iv = {10:200,11:100,12:50,13:25,14:12,15:8}.get(zoom, 25)
-            pts   = _build_shore_gradient_points(
-                poly_polygons, poly_iv, bbox_s, bbox_n, bbox_w, bbox_e)
-            names = list(dict.fromkeys(
-                p.get("name","") for p in poly_data["polygons"] if p.get("name")))
-            return {
-                "points": pts, "species": "シーバス", "water_based": True,
-                "river_count": poly_data["count"], "river_names": names[:20], "cache_age_min": 0,
-            }
-
-    # スコアリング特徴量取得（zoom>=12 かつ小エリアのみ・大エリアはランドマーク専用）
+    # ── スコアリング特徴量取得（ポリゴン・中心線両方で使用）
     clat = (bbox_s + bbox_n) / 2
     area_km2 = (bbox_n - bbox_s) * 111 * (bbox_e - bbox_w) * 111 * math.cos(math.radians(clat))
     if zoom >= 12 and area_km2 <= 2000:
@@ -1099,6 +1084,38 @@ def get_river_heatmap(lat: float, lng: float, zoom: int = 13,
         scoring_feats = {"bridges": [], "lamps": [], "outfalls": [], "water_gates": []}
     tides = get_tides()
 
+    # ── ポリゴン方式（zoom>=11: natural=water + SQLite中心線補完）──────
+    if zoom >= 11:
+        # natural=water ポリゴン（Overpass・非同期バックグラウンドキャッシュ）
+        bbox_str_poly = f"{bbox_s:.3f},{bbox_w:.3f},{bbox_n:.3f},{bbox_e:.3f}"
+        wpg_bucket = f"WPG_{bbox_str_poly}"
+        _ts_now = _time.time()
+        if wpg_bucket in _water_polygon_cache and \
+                _ts_now - _water_polygon_cache[wpg_bucket][0] < _WATER_POLYGON_TTL:
+            osm_polys = _water_polygon_cache[wpg_bucket][1]
+        else:
+            osm_polys = []
+            threading.Thread(target=_fetch_water_polygons, args=(bbox_str_poly,), daemon=True).start()
+
+        # SQLite中心線→ポリゴン（natural=water欠損区間の補完）
+        poly_data = get_water_polygon_data(bbox_s, bbox_n, bbox_w, bbox_e, zoom)
+        sql_polys = [{"nodes": p["coords"], "name": p.get("name", "")}
+                     for p in poly_data["polygons"]]
+
+        all_polys = osm_polys + sql_polys
+        if all_polys:
+            poly_iv = {10:200,11:100,12:50,13:25,14:12,15:8,16:5,17:3}.get(zoom, 25)
+            pts = _build_shore_gradient_points(
+                all_polys, poly_iv, bbox_s, bbox_n, bbox_w, bbox_e,
+                scoring_feats=scoring_feats
+            )
+            names = list(dict.fromkeys(p.get("name","") for p in all_polys if p.get("name")))
+            return {
+                "points": pts, "species": "シーバス", "water_based": True,
+                "river_count": len(all_polys), "river_names": names[:20], "cache_age_min": 0,
+            }
+
+    # ── 中心線スコアリング（zoom<11 またはポリゴンなし）
     radius_km = _ZOOM_RADIUS_R.get(zoom, 9)  # _interpolate_river レガシー用
     points:        list = []
     visible_names: list = []
@@ -1186,6 +1203,8 @@ def _fetch_water_polygons(bbox_str: str) -> list:
         if len(nodes) < 4:
             continue
         tags = el.get("tags", {})
+        if tags.get("tunnel") == "yes" or tags.get("covered") == "yes":
+            continue
         # 明確に非河川タグは除外
         water_tag    = tags.get("water",    "")
         waterway_tag = tags.get("waterway", "")
@@ -1255,12 +1274,37 @@ def _offset_toward(lat: float, lng: float,
     return round(new_lat, 5), round(new_lng, 5)
 
 
+def _feature_score_boost(lat: float, lng: float, scoring_feats: dict) -> float:
+    """橋脚・常夜灯・合流点からの距離でスコアブーストを計算 (0.0–0.35)"""
+    boost = 0.0
+    for bla, blo, btype, _, _ in _SEABASS_LANDMARKS:
+        d_m = _dist_km(lat, lng, bla, blo) * 1000
+        if btype == "bridge_pier" and d_m < 80:
+            boost = max(boost, 0.30 * (1 - d_m / 80))
+        elif btype == "confluence" and d_m < 150:
+            boost = max(boost, 0.25 * (1 - d_m / 150))
+        if boost >= 0.35:
+            return 0.35
+    for bla, blo, _ in scoring_feats.get("bridges", []):
+        d_m = _dist_km(lat, lng, bla, blo) * 1000
+        if d_m < 60:
+            boost = max(boost, 0.25 * (1 - d_m / 60))
+        if boost >= 0.35:
+            return 0.35
+    for lla, llo in scoring_feats.get("lamps", []):
+        d_m = _dist_km(lat, lng, lla, llo) * 1000
+        if d_m < 40:
+            boost = max(boost, 0.15 * (1 - d_m / 40))
+    return min(boost, 0.35)
+
+
 def _build_shore_gradient_points(
     polygons: list, interval_m: float,
     bbox_s: float, bbox_n: float, bbox_w: float, bbox_e: float,
+    scoring_feats: dict = None,
 ) -> list:
     """水域ポリゴンから岸→中央グラデーションのポイントを生成。
-    岸=赤(0.92)、中央=青(0.07)。川幅に応じてオフセット数を自動調整。"""
+    scoring_feats が指定された場合、橋脚・常夜灯・合流点でスコアを加算。"""
     GRADIENT = [
         (0,   0.92),   # 岸: 赤
         (8,   0.82),   # 8m: 橙
@@ -1269,6 +1313,8 @@ def _build_shore_gradient_points(
         (200, 0.07),   # 200m: 青（大河川の中央のみ）
     ]
     MAX_POINTS = 18000  # canvas描画の上限
+
+    water_gates = scoring_feats.get("water_gates", []) if scoring_feats else []
 
     # ポリゴン数に応じてインターバルを自動調整（多すぎる場合は間引く）
     adaptive_iv = max(interval_m, interval_m * len(polygons) // 20)
@@ -1299,7 +1345,19 @@ def _build_shore_gradient_points(
                 if key in seen:
                     continue
                 seen.add(key)
-                points.append({"lat": pla, "lng": plo, "score": score})
+
+                # 水門100m以内は除外
+                if any(_dist_km(pla, plo, wla, wlo) < 0.1 for wla, wlo in water_gates):
+                    continue
+
+                # 特徴物によるスコアブースト（橋脚・常夜灯・合流点）
+                if scoring_feats is not None:
+                    boost = _feature_score_boost(pla, plo, scoring_feats)
+                    final_score = min(1.0, score + boost)
+                else:
+                    final_score = score
+
+                points.append({"lat": pla, "lng": plo, "score": final_score})
                 if len(points) >= MAX_POINTS:
                     return points
 
@@ -1357,7 +1415,7 @@ def get_water_polygon_data(bbox_s: float, bbox_n: float,
         min_length = 0.0
 
     # ノード間引き間隔（ズームに応じて）
-    step = max(1, {8:12, 9:8, 10:6, 11:4, 12:3, 13:2, 14:1, 15:1}.get(zoom, 3))
+    step = max(1, {8:12, 9:8, 10:6, 11:4, 12:3, 13:2, 14:1, 15:1, 16:1, 17:1}.get(zoom, 3))
 
     with get_db() as conn:
         count = conn.execute("SELECT COUNT(*) FROM osm_rivers").fetchone()[0]
