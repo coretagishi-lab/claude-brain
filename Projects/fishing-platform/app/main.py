@@ -225,7 +225,16 @@ def get_catches(
     return db.get_public_catches(bounds, limit, period, species)
 
 @app.get("/api/heatmap")
-def heatmap(period: Optional[str] = None, species: Optional[str] = None):
+def heatmap(
+    lat:     Optional[float] = None,
+    lng:     Optional[float] = None,
+    zoom:    int             = 13,
+    fish:    Optional[str]   = None,
+    period:  Optional[str]   = None,
+    species: Optional[str]   = None,
+):
+    if lat is not None and lng is not None:
+        return db.get_river_heatmap(lat, lng, zoom)
     return db.get_heatmap_stats(period, species)
 
 @app.get("/api/stats")

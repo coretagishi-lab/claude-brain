@@ -606,6 +606,144 @@ def get_ecological_heatmap(lat: float, lng: float, species: str = "シーバス"
         "bait": eco.get("bait", []),
     }
 
+# ── Phase 5: 川ヒートマップ（シーバス特化）────────────────────────
+
+_river_cache:    dict = {}
+_RIVER_CACHE_TTL = 7200  # 2時間（川データは変わらない）
+
+_ZOOM_INTERVAL = {10:400, 11:200, 12:100, 13:50, 14:20, 15:10}   # m/点
+_ZOOM_RADIUS_R = {10:28,  11:20,  12:13,  13:9,   14:6,  15:3}   # km
+
+def _get_river_features(lat: float, lng: float, radius_km: float) -> dict:
+    """waterway=river のライン座標と水門ノードを Overpass から取得。"""
+    bucket = f"RV{round(lat*5)/5:.1f},{round(lng*5)/5:.1f},{int(radius_km)}"
+    now = _time.time()
+    if bucket in _river_cache:
+        ts, data = _river_cache[bucket]
+        if now - ts < _RIVER_CACHE_TTL:
+            return data
+
+    r_lat = radius_km / 111.0
+    r_lng = radius_km / (111.0 * max(0.01, math.cos(math.radians(lat))))
+    bbox  = f"{lat-r_lat:.5f},{lng-r_lng:.5f},{lat+r_lat:.5f},{lng+r_lng:.5f}"
+
+    query = (
+        f"[out:json][timeout:30];\n("
+        f'way["waterway"="river"]({bbox});'
+        f'node["waterway"~"weir|sluice_gate|floodgate"]({bbox});'
+        f");\nout geom;"
+    )
+    raw = _overpass_fetch_osm(query)
+
+    rivers: list = []
+    weirs:  list = []
+    for el in raw.get("elements", []):
+        tags = el.get("tags", {})
+        ww   = tags.get("waterway", "")
+        etype = el.get("type", "")
+
+        if etype == "way" and ww == "river":
+            # 幅5m未満は除外（タグがなければ通す）
+            w_str = tags.get("width") or tags.get("est_width") or ""
+            try:
+                if float(w_str.split()[0]) < 5:
+                    continue
+            except Exception:
+                pass
+            if tags.get("intermittent") == "yes":
+                continue  # 季節河川を除外
+            geom  = el.get("geometry", [])
+            nodes = [(float(n["lat"]), float(n["lon"])) for n in geom if "lat" in n and "lon" in n]
+            if len(nodes) >= 2:
+                rivers.append({"nodes": nodes, "name": tags.get("name", "")})
+
+        elif etype == "node" and ww in ("weir", "sluice_gate", "floodgate"):
+            la, lo = el.get("lat"), el.get("lon")
+            if la and lo:
+                weirs.append((float(la), float(lo)))
+
+    result = {"rivers": rivers, "weirs": weirs}
+    _river_cache[bucket] = (now, result)
+    return result
+
+def _interpolate_river(nodes: list, interval_km: float,
+                       c_lat: float, c_lng: float, radius_km: float, weirs: list) -> list:
+    """川ポリライン上に interval_km 間隔でポイントを生成（累積距離＋2分探索）。"""
+    if len(nodes) < 2:
+        return []
+
+    # 累積距離配列
+    cum = [0.0]
+    for i in range(1, len(nodes)):
+        cum.append(cum[-1] + _dist_km(nodes[i-1][0], nodes[i-1][1], nodes[i][0], nodes[i][1]))
+    total = cum[-1]
+    if total < 1e-10:
+        return []
+
+    result  = []
+    target  = 0.0
+    n_segs  = len(nodes) - 1
+
+    while target <= total + 1e-10:
+        # 2分探索で target が入るセグメントを特定
+        lo, hi = 0, n_segs - 1
+        while lo < hi:
+            mid = (lo + hi) // 2
+            if cum[mid + 1] >= target:
+                hi = mid
+            else:
+                lo = mid + 1
+        seg_i   = lo
+        seg_len = cum[seg_i + 1] - cum[seg_i]
+        t = ((target - cum[seg_i]) / seg_len) if seg_len > 1e-10 else 0.0
+        t = max(0.0, min(1.0, t))
+
+        g_la = nodes[seg_i][0] + t * (nodes[seg_i+1][0] - nodes[seg_i][0])
+        g_lo = nodes[seg_i][1] + t * (nodes[seg_i+1][1] - nodes[seg_i][1])
+
+        # 検索範囲内かつ水門100m以内でない
+        if _dist_km(g_la, g_lo, c_lat, c_lng) <= radius_km:
+            if not any(_dist_km(g_la, g_lo, wla, wlo) < 0.1 for wla, wlo in weirs):
+                result.append({"lat": round(g_la, 5), "lng": round(g_lo, 5), "score": 1.0})
+
+        target += interval_km
+
+    return result
+
+def get_river_heatmap(lat: float, lng: float, zoom: int = 13) -> dict:
+    """シーバス川ヒートマップ: waterway=river 沿いのポイントを score=1.0 で返す。"""
+    radius_km  = _ZOOM_RADIUS_R.get(zoom, 9)
+    interval_m = _ZOOM_INTERVAL.get(zoom, 50)
+
+    feats  = _get_river_features(lat, lng, radius_km)
+    rivers = feats.get("rivers", [])
+    weirs  = feats.get("weirs", [])
+
+    points: list = []
+    for river in rivers:
+        pts = _interpolate_river(
+            river["nodes"], interval_m / 1000.0,
+            lat, lng, radius_km, weirs
+        )
+        points.extend(pts)
+
+    env = _get_env_data(lat, lng)
+    river_names = list(dict.fromkeys(r["name"] for r in rivers if r.get("name")))
+
+    return {
+        "points":      points,
+        "species":     "シーバス",
+        "water_based": True,
+        "river_count": len(rivers),
+        "river_names": river_names,
+        "env": {
+            "sea_temp":     round(env.get("sea_temp", 18), 1),
+            "tide_current": env.get("tide_current", ""),
+            "tide_type":    env.get("tide_type", ""),
+            "moon_phase":   env.get("moon_phase", ""),
+        },
+    }
+
 # ── Phase 4+: 水辺限定ヒートマップ ───────────────────────────────
 
 _water_feat_cache: dict = {}
