@@ -4,7 +4,7 @@ current_status: active
 priority: medium
 due_date: ""
 review_waiting: false
-updated_at: 2026-06-05T20:00
+updated_at: 2026-06-05T21:00
 ---
 
 ## current_goal
@@ -66,7 +66,7 @@ updated_at: 2026-06-05T20:00
 - Nginx: ポート80リバースプロキシ → 8080
 
 ## next_action
-- http://133.88.117.175 で確認: (1)「🌡 ヒートマップ」ONで荒川・隅田川・江戸川が面(ポリゴン)で描画されるか (2)ズームボタン右端70pxに表示されるか (3)OKならPhase 5（課金・SEO・B2B）に進む
+- http://133.88.117.175 で確認: 「🌡 ヒートマップ」で岸=赤橙・中央=青のサーモグラフィー風グラデーションが出るか → OKならPhase 5（課金・SEO・B2B）に進む
 - 遊漁船の実DBデータ収集方法を決定してPhase 4を完了させる
 
 ## blocker
