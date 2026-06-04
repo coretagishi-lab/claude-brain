@@ -104,6 +104,27 @@ def init_db():
                 FOREIGN KEY (loser_id)  REFERENCES users(id)
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS osm_rivers (
+                id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                name      TEXT    DEFAULT '',
+                width     REAL,
+                length_km REAL    DEFAULT 0,
+                nodes_json TEXT   NOT NULL,
+                min_lat   REAL    NOT NULL,
+                max_lat   REAL    NOT NULL,
+                min_lng   REAL    NOT NULL,
+                max_lng   REAL    NOT NULL
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_rivers_bbox ON osm_rivers(min_lat, max_lat, min_lng, max_lng)")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS osm_weirs (
+                id  INTEGER PRIMARY KEY AUTOINCREMENT,
+                lat REAL NOT NULL,
+                lng REAL NOT NULL
+            )
+        """)
         conn.commit()
 
 # ── Catches ───────────────────────────────────────────────────
@@ -614,10 +635,9 @@ _RIVER_CACHE_TTL = 7200  # 2時間（川データは変わらない）
 _ZOOM_INTERVAL = {10:400, 11:200, 12:100, 13:50, 14:20, 15:10}   # m/点
 _ZOOM_RADIUS_R = {10:28,  11:20,  12:13,  13:9,   14:6,  15:3}   # km
 
-# ── 関東全域キャッシュ (30分バックグラウンド更新) ────────────────────
-_kanto_cache: dict = {"rivers": [], "weirs": [], "updated_at": 0.0}
+# ── 関東全域川データ (SQLite永続化・バックグラウンド更新) ────────────────
 _KANTO_BBOX         = "34.8,138.0,37.2,141.2"   # 関東全域（利根川〜相模川）
-_KANTO_REFRESH_SEC  = 1800                        # 30分
+_KANTO_REFRESH_SEC  = 3600                        # 1時間ごとに更新
 
 def _fetch_kanto_rivers_all() -> dict:
     """関東全域 waterway=river を一括取得（ditch/drain/weir/sluice除外）"""
@@ -660,19 +680,43 @@ def _fetch_kanto_rivers_all() -> dict:
                 weirs.append((float(la), float(lo)))
     return {"rivers": rivers, "weirs": weirs}
 
+def _save_rivers_to_db(rivers: list, weirs: list):
+    """Overpassから取得した川データをSQLiteに保存（既存データを置換）"""
+    import json as _json
+    with get_db() as conn:
+        conn.execute("DELETE FROM osm_rivers")
+        conn.execute("DELETE FROM osm_weirs")
+        for r in rivers:
+            nodes = r["nodes"]
+            lats  = [n[0] for n in nodes]
+            lngs  = [n[1] for n in nodes]
+            conn.execute(
+                "INSERT INTO osm_rivers (name, width, length_km, nodes_json, min_lat, max_lat, min_lng, max_lng) VALUES (?,?,?,?,?,?,?,?)",
+                (r.get("name") or "", r.get("width"), r.get("length_km") or 0,
+                 _json.dumps(nodes, separators=(',', ':')),
+                 min(lats), max(lats), min(lngs), max(lngs))
+            )
+        for lat, lng in weirs:
+            conn.execute("INSERT INTO osm_weirs (lat, lng) VALUES (?,?)", (lat, lng))
+        conn.commit()
+
 def start_kanto_cache_refresh():
-    """バックグラウンドスレッドで30分ごとに関東全域キャッシュを更新"""
+    """バックグラウンドスレッドで川データを段階的にSQLiteへ保存（メモリに蓄積しない）"""
     def _loop():
-        try:
-            data = _fetch_kanto_rivers_all()
-            _kanto_cache.update(rivers=data["rivers"], weirs=data["weirs"], updated_at=_time.time())
-        except Exception:
-            pass
+        # 初回: DBが空の場合は即座に取得
+        with get_db() as conn:
+            count = conn.execute("SELECT COUNT(*) FROM osm_rivers").fetchone()[0]
+        if count == 0:
+            try:
+                data = _fetch_kanto_rivers_all()
+                _save_rivers_to_db(data["rivers"], data["weirs"])
+            except Exception:
+                pass
         while True:
             _time.sleep(_KANTO_REFRESH_SEC)
             try:
                 data = _fetch_kanto_rivers_all()
-                _kanto_cache.update(rivers=data["rivers"], weirs=data["weirs"], updated_at=_time.time())
+                _save_rivers_to_db(data["rivers"], data["weirs"])
             except Exception:
                 pass
     threading.Thread(target=_loop, daemon=True).start()
@@ -800,42 +844,71 @@ def _interpolate_river(nodes: list, interval_km: float,
     return result
 
 def get_river_heatmap(lat: float, lng: float, zoom: int = 13) -> dict:
-    """シーバス川ヒートマップ: 関東全域キャッシュ → viewport フィルタ → 水深スコア付きポイント返却"""
-    # キャッシュ未ロード時は旧来の範囲クエリにフォールバック
-    if _kanto_cache["updated_at"] == 0.0:
-        return _get_river_heatmap_legacy(lat, lng, zoom)
+    """シーバス川ヒートマップ: SQLiteから該当範囲の川のみ取得・ズーム別フィルタ"""
+    import json as _json
 
     radius_km  = _ZOOM_RADIUS_R.get(zoom, 9)
     interval_m = _ZOOM_INTERVAL.get(zoom, 50)
-    rivers     = _kanto_cache["rivers"]
-    weirs      = _kanto_cache["weirs"]
+
+    # ズームレベルで表示する川の最小サイズを決定
+    if zoom <= 12:
+        min_length = 10.0   # 大河川のみ（利根川・荒川・多摩川等）
+    elif zoom <= 14:
+        min_length = 1.0    # 中規模以上
+    else:
+        min_length = 0.0    # 全川表示
+
+    pad_lat = radius_km / 111.0
+    pad_lng = radius_km / (111.0 * max(0.01, math.cos(math.radians(lat))))
+    s, n = lat - pad_lat, lat + pad_lat
+    w, e = lng - pad_lng, lng + pad_lng
+
+    with get_db() as conn:
+        count = conn.execute("SELECT COUNT(*) FROM osm_rivers").fetchone()[0]
+        if count == 0:
+            return _get_river_heatmap_legacy(lat, lng, zoom)
+
+        sql    = ("SELECT name, width, length_km, nodes_json FROM osm_rivers "
+                  "WHERE max_lat >= ? AND min_lat <= ? AND max_lng >= ? AND min_lng <= ?")
+        params = [s, n, w, e]
+        if min_length > 0:
+            sql    += " AND length_km >= ?"
+            params.append(min_length)
+        river_rows = conn.execute(sql, params).fetchall()
+
+        weir_rows = conn.execute(
+            "SELECT lat, lng FROM osm_weirs WHERE lat BETWEEN ? AND ? AND lng BETWEEN ? AND ?",
+            (s, n, w, e)
+        ).fetchall()
+
+    weirs  = [(r["lat"], r["lng"]) for r in weir_rows]
+    rivers = [
+        {"nodes": _json.loads(r["nodes_json"]), "name": r["name"] or "",
+         "width": r["width"], "length_km": r["length_km"] or 0}
+        for r in river_rows
+    ]
 
     points:        list = []
     visible_names: list = []
-    visible_count: int  = 0
     for river in rivers:
-        if not _river_visible(river, lat, lng, radius_km):
-            continue
-        visible_count += 1
         if river.get("name"):
             visible_names.append(river["name"])
         score = _width_to_score(river.get("width"), river.get("length_km"))
         pts   = _interpolate_river(
-            river["nodes"], interval_m / 1000.0,
-            lat, lng, radius_km, weirs
+            river["nodes"], interval_m / 1000.0, lat, lng, radius_km, weirs
         )
         for p in pts:
-            p["score"] = score   # 水深に応じた色スコアで上書き
+            p["score"] = score
         points.extend(pts)
 
     river_names = list(dict.fromkeys(visible_names))
     return {
-        "points":        points,
-        "species":       "シーバス",
-        "water_based":   True,
-        "river_count":   visible_count,
-        "river_names":   river_names[:20],
-        "cache_age_min": int((_time.time() - _kanto_cache["updated_at"]) / 60),
+        "points":      points,
+        "species":     "シーバス",
+        "water_based": True,
+        "river_count": len(rivers),
+        "river_names": river_names[:20],
+        "cache_age_min": 0,
     }
 
 def _get_river_heatmap_legacy(lat: float, lng: float, zoom: int = 13) -> dict:

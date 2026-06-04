@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 import jwt
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -18,13 +19,13 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 db.init_db()
 
-app = FastAPI(title="Angler's Map API", version="3.0.0")
+app = FastAPI(title="Angler's Map API", version="3.1.0")
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 @app.on_event("startup")
 def startup_event():
-    """起動時に関東全域の川データをバックグラウンドでキャッシュ開始"""
     db.start_kanto_cache_refresh()
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 JWT_SECRET    = os.environ.get("JWT_SECRET", "anglers-map-secret-2024-phase3")
 JWT_ALGORITHM = "HS256"
