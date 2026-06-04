@@ -1307,6 +1307,42 @@ def _build_shore_gradient_points(
 
     return points
 
+
+def _simplify_nodes(nodes: list, zoom: int) -> list:
+    """ズームに応じてポリゴンノードを間引く（Leaflet描画用）"""
+    step = max(1, {8:20, 9:16, 10:12, 11:8, 12:5, 13:3, 14:2, 15:1, 16:1, 17:1}.get(zoom, 4))
+    simplified = nodes[::step]
+    if len(simplified) >= 2 and simplified[0] != simplified[-1]:
+        simplified = simplified + [simplified[0]]
+    return simplified
+
+
+def get_water_polygon_data(bbox_s: float, bbox_n: float,
+                            bbox_w: float, bbox_e: float, zoom: int) -> dict:
+    """L.polygon描画用: 水域ポリゴン境界座標を返す。
+    未キャッシュ時はバックグラウンドで取得開始しstatus='loading'を返す。"""
+    bbox_str = f"{round(bbox_s,2)},{round(bbox_w,2)},{round(bbox_n,2)},{round(bbox_e,2)}"
+    bucket   = f"WPG_{bbox_str}"
+
+    if bucket in _water_polygon_cache:
+        _, polygons = _water_polygon_cache[bucket]
+    else:
+        threading.Thread(target=_fetch_water_polygons, args=(bbox_str,), daemon=True).start()
+        return {"polygons": [], "count": 0, "status": "loading"}
+
+    result = []
+    for poly in polygons:
+        nodes = poly["nodes"]
+        simplified = _simplify_nodes(nodes, zoom)
+        if len(simplified) < 3:
+            continue
+        result.append({
+            "coords": [[n[0], n[1]] for n in simplified],
+            "name":   poly.get("name", ""),
+        })
+
+    return {"polygons": result, "count": len(result), "status": "ok"}
+
 def _overpass_fetch_osm(query: str) -> dict:
     """Overpass API取得（フォールバック付き）。"""
     import urllib.request, urllib.parse, json as _j

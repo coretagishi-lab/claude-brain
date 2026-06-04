@@ -235,12 +235,16 @@ def heatmap(
     lat:     Optional[float] = None,
     lng:     Optional[float] = None,
     zoom:    int             = 13,
+    n:       Optional[float] = None,
+    s:       Optional[float] = None,
+    e:       Optional[float] = None,
+    w:       Optional[float] = None,
     fish:    Optional[str]   = None,
     period:  Optional[str]   = None,
     species: Optional[str]   = None,
 ):
     if lat is not None and lng is not None:
-        return db.get_river_heatmap(lat, lng, zoom)
+        return db.get_river_heatmap(lat, lng, zoom, n=n, s=s, e=e, w=w)
     return db.get_heatmap_stats(period, species)
 
 @app.get("/api/stats")
@@ -303,6 +307,18 @@ def water_heatmap(
     radius: float = 15,
 ):
     return db.get_water_heatmap(lat, lng, species, min(float(radius), 25))
+
+@app.get("/api/river-polygons")
+def river_polygons(
+    n: Optional[float] = None,
+    s: Optional[float] = None,
+    e: Optional[float] = None,
+    w: Optional[float] = None,
+    zoom: int = 13,
+):
+    if any(v is None for v in [n, s, e, w]):
+        return {"polygons": [], "count": 0, "status": "missing_bounds"}
+    return db.get_water_polygon_data(s, n, w, e, zoom)
 
 app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")

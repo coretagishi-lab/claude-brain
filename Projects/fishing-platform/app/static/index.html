@@ -85,6 +85,9 @@ html,body{height:100%;background:var(--navy);color:var(--text);font-family:-appl
 #ai-btn{bottom:260px}
 #fishing-btn{bottom:200px}
 #my-loc-btn{bottom:140px}
+#zoom-btns{position:fixed;right:16px;top:50%;transform:translateY(-50%);z-index:11;display:flex;flex-direction:column;gap:5px}
+.zbtn{width:40px;height:34px;border-radius:9px;border:1px solid rgba(0,201,177,0.2);background:rgba(10,22,40,0.92);backdrop-filter:blur(8px);color:var(--gray);font-size:0.62rem;font-weight:700;cursor:pointer;font-family:inherit;line-height:1}
+.zbtn:active{background:rgba(0,201,177,0.2);border-color:var(--teal);color:var(--teal)}
 
 /* ── TIDE CARD ── */
 #tide-card{position:fixed;bottom:80px;left:12px;z-index:10;
@@ -349,6 +352,14 @@ input[type=file]{display:none}
   <button class="map-btn" id="fishing-btn" title="釣行中ON/OFF">🎣</button>
   <button class="map-btn" id="ai-btn" title="AI釣りポイント提案">🤖</button>
 </div>
+<!-- Zoom buttons (5 levels) -->
+<div id="zoom-btns">
+  <button class="zbtn" data-zoom="8"  title="最大引き（全国）">全</button>
+  <button class="zbtn" data-zoom="10" title="広域">広</button>
+  <button class="zbtn" data-zoom="13" title="標準">標</button>
+  <button class="zbtn" data-zoom="15" title="詳細">詳</button>
+  <button class="zbtn" data-zoom="17" title="最大拡大">拡</button>
+</div>
 
 <!-- Tide card -->
 <div id="tide-card">
@@ -473,6 +484,7 @@ let map, myMarker, myLat, myLng, postLat, postLng;
 let catchMarkers=[], tackleMarkers=[], boatMarkers=[], anglerMarkers=[];
 let heatLayer=null;
 let canvasHeatLayer=null;
+let riverPolygonLayers=[];
 let heatmapDebounceTimer=null;
 let activeModes=new Set(['catches']), currentPeriod='all', filterSpecies='';
 let selectedPrivacy='area', selectedSpeciesForPost=null;
@@ -685,6 +697,11 @@ async function _overpassFetch(query){
 }
 
 // ── Clear layers ──────────────────────────────────────────────
+function removeRiverPolygons(){
+  riverPolygonLayers.forEach(l=>map.removeLayer(l));
+  riverPolygonLayers=[];
+}
+
 function clearAllLayers(){
   catchMarkers.forEach(m=>map.removeLayer(m)); catchMarkers=[];
   tackleMarkers.forEach(m=>map.removeLayer(m)); tackleMarkers=[];
@@ -692,12 +709,13 @@ function clearAllLayers(){
   anglerMarkers.forEach(m=>map.removeLayer(m)); anglerMarkers=[];
   if(heatLayer){map.removeLayer(heatLayer);heatLayer=null;}
   removeCanvasHeat();
+  removeRiverPolygons();
   clearEcologyCard();
 }
 
 function clearModeLayer(mode){
   if(mode==='catches'){catchMarkers.forEach(m=>map.removeLayer(m));catchMarkers=[];}
-  else if(mode==='heatmap'){if(heatLayer){map.removeLayer(heatLayer);heatLayer=null;}removeCanvasHeat();clearEcologyCard();}
+  else if(mode==='heatmap'){if(heatLayer){map.removeLayer(heatLayer);heatLayer=null;}removeCanvasHeat();removeRiverPolygons();clearEcologyCard();}
   else if(mode==='tackle'){tackleMarkers.forEach(m=>map.removeLayer(m));tackleMarkers=[];}
   else if(mode==='boats'){boatMarkers.forEach(m=>map.removeLayer(m));boatMarkers=[];}
   else if(mode==='anglers'){anglerMarkers.forEach(m=>map.removeLayer(m));anglerMarkers=[];}
@@ -748,27 +766,44 @@ function addCatchPin(c){
   catchMarkers.push(m);
 }
 
-// ── Heatmap タイル方式（表示範囲±0.1度のみ取得）──────────────
+// ── Heatmap: L.polygon で川面を塗りつぶし ───────────────────────
 async function renderHeatmap(){
   removeCanvasHeat();
+  removeRiverPolygons();
   try{
-    const lat=myLat||map.getCenter().lat;
-    const lng=myLng||map.getCenter().lng;
-    const zoom=map.getZoom();
     const b=map.getBounds();
     const pad=0.02;
-    const n=(b.getNorth()+pad).toFixed(5);
-    const s=(b.getSouth()-pad).toFixed(5);
-    const e=(b.getEast() +pad).toFixed(5);
-    const w=(b.getWest() -pad).toFixed(5);
-    const data=await fetch(`${API}/api/heatmap?lat=${lat}&lng=${lng}&zoom=${zoom}&n=${n}&s=${s}&e=${e}&w=${w}&fish=seabass`)
-      .then(r=>r.json());
-    if(!data||!data.points||!data.points.length) return;
-    canvasHeatLayer=createCanvasHeatmap(map,data.points,{
-      radiusFn: z=>Math.max(5,Math.min(22,z-4))
+    const zoom=map.getZoom();
+    const params=new URLSearchParams({
+      n:(b.getNorth()+pad).toFixed(5), s:(b.getSouth()-pad).toFixed(5),
+      e:(b.getEast() +pad).toFixed(5), w:(b.getWest() -pad).toFixed(5),
+      zoom
     });
-    const names=(data.river_names||[]).slice(0,4).join('・');
-    showToast(`🌡 ${data.points.length}pt ${names?`(${names})`:''}`);
+    const data=await fetch(`${API}/api/river-polygons?${params}`).then(r=>r.json());
+
+    if(data.status==='loading'){
+      showToast('🌡 川ポリゴン取得中...');
+      clearTimeout(heatmapDebounceTimer);
+      heatmapDebounceTimer=setTimeout(()=>{
+        if(activeModes.has('heatmap')) renderHeatmap();
+      },12000);
+      return;
+    }
+    if(!data.polygons||!data.polygons.length){showToast('この範囲に川データなし');return;}
+
+    data.polygons.forEach(poly=>{
+      if(!poly.coords||poly.coords.length<3) return;
+      const layer=L.polygon(poly.coords,{
+        fillColor:'#0064ff',   // 川中央: 青
+        fillOpacity:0.35,
+        color:'#ff1e1e',       // 岸: 赤
+        weight:6,
+        opacity:0.80,
+        smoothFactor:1.5,
+      }).addTo(map);
+      riverPolygonLayers.push(layer);
+    });
+    showToast(`🌡 ${data.count}水域 描画完了`);
   }catch(e){console.error('heatmap:',e);}
 }
 
@@ -1184,7 +1219,7 @@ document.querySelectorAll('#period-row .fpill').forEach(btn=>btn.addEventListene
   btn.classList.add('active'); currentPeriod=btn.dataset.period;
   // 釣果・ヒートマップのみ再描画
   if(activeModes.has('catches')){catchMarkers.forEach(m=>map.removeLayer(m));catchMarkers=[];loadCatches();}
-  if(activeModes.has('heatmap')){if(heatLayer){map.removeLayer(heatLayer);heatLayer=null;}removeCanvasHeat();renderHeatmap();}
+  if(activeModes.has('heatmap')){if(heatLayer){map.removeLayer(heatLayer);heatLayer=null;}removeCanvasHeat();removeRiverPolygons();renderHeatmap();}
 }));
 
 // Nav
@@ -1206,6 +1241,11 @@ document.getElementById('fab').addEventListener('click',openSheet);
 document.getElementById('sheet-overlay').addEventListener('click',closeAllSheets);
 document.getElementById('tide-card').addEventListener('click',openAiSheet);
 document.getElementById('profile-btn').addEventListener('click',openProfileSheet);
+
+// Zoom buttons (5 levels, instant no animation)
+document.querySelectorAll('.zbtn').forEach(btn=>btn.addEventListener('click',()=>{
+  map.setZoom(parseInt(btn.dataset.zoom),{animate:false});
+}));
 
 // Fishing status toggle
 document.getElementById('fishing-btn').addEventListener('click',async()=>{
