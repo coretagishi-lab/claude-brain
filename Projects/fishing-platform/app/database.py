@@ -1,4 +1,4 @@
-import sqlite3, random, math, time as _time
+import sqlite3, random, math, time as _time, threading
 import bcrypt as _bcrypt
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -614,6 +614,95 @@ _RIVER_CACHE_TTL = 7200  # 2時間（川データは変わらない）
 _ZOOM_INTERVAL = {10:400, 11:200, 12:100, 13:50, 14:20, 15:10}   # m/点
 _ZOOM_RADIUS_R = {10:28,  11:20,  12:13,  13:9,   14:6,  15:3}   # km
 
+# ── 関東全域キャッシュ (30分バックグラウンド更新) ────────────────────
+_kanto_cache: dict = {"rivers": [], "weirs": [], "updated_at": 0.0}
+_KANTO_BBOX         = "34.8,138.0,37.2,141.2"   # 関東全域（利根川〜相模川）
+_KANTO_REFRESH_SEC  = 1800                        # 30分
+
+def _fetch_kanto_rivers_all() -> dict:
+    """関東全域 waterway=river を一括取得（ditch/drain/weir/sluice除外）"""
+    query = (
+        f"[out:json][timeout:120];\n("
+        f'way["waterway"="river"]({_KANTO_BBOX});'
+        f'node["waterway"~"weir|sluice_gate|floodgate"]({_KANTO_BBOX});'
+        f");\nout geom;"
+    )
+    raw = _overpass_fetch_osm(query)
+    rivers, weirs = [], []
+    for el in raw.get("elements", []):
+        tags  = el.get("tags", {})
+        ww    = tags.get("waterway", "")
+        etype = el.get("type", "")
+        if etype == "way" and ww == "river":
+            w_str = tags.get("width") or tags.get("est_width") or ""
+            width = None
+            try:
+                width = float(w_str.split()[0])
+                if width < 5:
+                    continue
+            except Exception:
+                pass
+            if tags.get("intermittent") == "yes":
+                continue
+            geom  = el.get("geometry", [])
+            nodes = [(float(n["lat"]), float(n["lon"])) for n in geom if "lat" in n and "lon" in n]
+            if len(nodes) >= 2:
+                # 川の長さを計算（幅タグがない場合の水深代替指標）
+                length_km = sum(
+                    _dist_km(nodes[i-1][0], nodes[i-1][1], nodes[i][0], nodes[i][1])
+                    for i in range(1, len(nodes))
+                )
+                rivers.append({"nodes": nodes, "name": tags.get("name", ""),
+                               "width": width, "length_km": round(length_km, 2)})
+        elif etype == "node" and ww in ("weir", "sluice_gate", "floodgate"):
+            la, lo = el.get("lat"), el.get("lon")
+            if la and lo:
+                weirs.append((float(la), float(lo)))
+    return {"rivers": rivers, "weirs": weirs}
+
+def start_kanto_cache_refresh():
+    """バックグラウンドスレッドで30分ごとに関東全域キャッシュを更新"""
+    def _loop():
+        try:
+            data = _fetch_kanto_rivers_all()
+            _kanto_cache.update(rivers=data["rivers"], weirs=data["weirs"], updated_at=_time.time())
+        except Exception:
+            pass
+        while True:
+            _time.sleep(_KANTO_REFRESH_SEC)
+            try:
+                data = _fetch_kanto_rivers_all()
+                _kanto_cache.update(rivers=data["rivers"], weirs=data["weirs"], updated_at=_time.time())
+            except Exception:
+                pass
+    threading.Thread(target=_loop, daemon=True).start()
+
+def _width_to_score(width, length_km: float = None) -> float:
+    """川幅→水深スコア変換。幅タグなし時は川の長さで代替 (深い/大=赤=1.0, 浅い/細=青=0.15)"""
+    if width is not None:
+        if   width >= 150: return 1.00
+        elif width >= 80:  return 0.85
+        elif width >= 40:  return 0.65
+        elif width >= 15:  return 0.40
+        else:              return 0.15
+    # 長さで代替（利根川・荒川 > 30km, 神田川 ~10km, 小支流 < 1km）
+    if length_km is not None:
+        if   length_km >= 30: return 0.95
+        elif length_km >= 10: return 0.80
+        elif length_km >= 3:  return 0.55
+        elif length_km >= 1:  return 0.35
+        else:                 return 0.18
+    return 0.55  # 情報なし
+
+def _river_visible(river: dict, c_lat: float, c_lng: float, radius_km: float) -> bool:
+    """河川ノードの一部をサンプリングして表示範囲チェック"""
+    nodes = river["nodes"]
+    step  = max(1, len(nodes) // 8)
+    for la, lo in nodes[::step]:
+        if _dist_km(la, lo, c_lat, c_lng) <= radius_km:
+            return True
+    return False
+
 def _get_river_features(lat: float, lng: float, radius_km: float) -> dict:
     """waterway=river のライン座標と水門ノードを Overpass から取得。"""
     bucket = f"RV{round(lat*5)/5:.1f},{round(lng*5)/5:.1f},{int(radius_km)}"
@@ -711,38 +800,58 @@ def _interpolate_river(nodes: list, interval_km: float,
     return result
 
 def get_river_heatmap(lat: float, lng: float, zoom: int = 13) -> dict:
-    """シーバス川ヒートマップ: waterway=river 沿いのポイントを score=1.0 で返す。"""
+    """シーバス川ヒートマップ: 関東全域キャッシュ → viewport フィルタ → 水深スコア付きポイント返却"""
+    # キャッシュ未ロード時は旧来の範囲クエリにフォールバック
+    if _kanto_cache["updated_at"] == 0.0:
+        return _get_river_heatmap_legacy(lat, lng, zoom)
+
     radius_km  = _ZOOM_RADIUS_R.get(zoom, 9)
     interval_m = _ZOOM_INTERVAL.get(zoom, 50)
+    rivers     = _kanto_cache["rivers"]
+    weirs      = _kanto_cache["weirs"]
 
-    feats  = _get_river_features(lat, lng, radius_km)
-    rivers = feats.get("rivers", [])
-    weirs  = feats.get("weirs", [])
-
-    points: list = []
+    points:        list = []
+    visible_names: list = []
+    visible_count: int  = 0
     for river in rivers:
-        pts = _interpolate_river(
+        if not _river_visible(river, lat, lng, radius_km):
+            continue
+        visible_count += 1
+        if river.get("name"):
+            visible_names.append(river["name"])
+        score = _width_to_score(river.get("width"), river.get("length_km"))
+        pts   = _interpolate_river(
             river["nodes"], interval_m / 1000.0,
             lat, lng, radius_km, weirs
         )
+        for p in pts:
+            p["score"] = score   # 水深に応じた色スコアで上書き
         points.extend(pts)
 
-    env = _get_env_data(lat, lng)
-    river_names = list(dict.fromkeys(r["name"] for r in rivers if r.get("name")))
-
+    river_names = list(dict.fromkeys(visible_names))
     return {
-        "points":      points,
-        "species":     "シーバス",
-        "water_based": True,
-        "river_count": len(rivers),
-        "river_names": river_names,
-        "env": {
-            "sea_temp":     round(env.get("sea_temp", 18), 1),
-            "tide_current": env.get("tide_current", ""),
-            "tide_type":    env.get("tide_type", ""),
-            "moon_phase":   env.get("moon_phase", ""),
-        },
+        "points":        points,
+        "species":       "シーバス",
+        "water_based":   True,
+        "river_count":   visible_count,
+        "river_names":   river_names[:20],
+        "cache_age_min": int((_time.time() - _kanto_cache["updated_at"]) / 60),
     }
+
+def _get_river_heatmap_legacy(lat: float, lng: float, zoom: int = 13) -> dict:
+    """キャッシュ未ロード時のフォールバック（旧来の範囲クエリ）"""
+    radius_km  = _ZOOM_RADIUS_R.get(zoom, 9)
+    interval_m = _ZOOM_INTERVAL.get(zoom, 50)
+    feats  = _get_river_features(lat, lng, radius_km)
+    rivers = feats.get("rivers", [])
+    weirs  = feats.get("weirs", [])
+    points: list = []
+    for river in rivers:
+        pts = _interpolate_river(river["nodes"], interval_m / 1000.0, lat, lng, radius_km, weirs)
+        points.extend(pts)
+    river_names = list(dict.fromkeys(r["name"] for r in rivers if r.get("name")))
+    return {"points": points, "species": "シーバス", "water_based": True,
+            "river_count": len(rivers), "river_names": river_names, "cache_age_min": -1}
 
 # ── Phase 4+: 水辺限定ヒートマップ ───────────────────────────────
 

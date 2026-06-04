@@ -19,6 +19,11 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 db.init_db()
 
 app = FastAPI(title="Angler's Map API", version="3.0.0")
+
+@app.on_event("startup")
+def startup_event():
+    """起動時に関東全域の川データをバックグラウンドでキャッシュ開始"""
+    db.start_kanto_cache_refresh()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 JWT_SECRET    = os.environ.get("JWT_SECRET", "anglers-map-secret-2024-phase3")

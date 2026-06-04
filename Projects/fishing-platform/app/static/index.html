@@ -252,16 +252,9 @@ input[type=file]{display:none}
 .pp-nav .a-btn{background:rgba(255,255,255,0.08);color:var(--gray)}
 
 /* ── GLOWING DOTS (boats / fishing users) ── */
-@keyframes glow-pulse{
-  0%,100%{box-shadow:0 0 6px 3px rgba(255,34,68,0.6),0 0 14px 6px rgba(255,34,68,0.3)}
-  50%{box-shadow:0 0 10px 5px rgba(255,34,68,0.9),0 0 24px 10px rgba(255,34,68,0.5)}
-}
-.glow-dot{width:12px;height:12px;border-radius:50%;background:var(--red);animation:glow-pulse 1.5s ease-in-out infinite;cursor:pointer}
-@keyframes glow-blue{
-  0%,100%{box-shadow:0 0 6px 3px rgba(0,120,255,0.7),0 0 14px 6px rgba(0,120,255,0.35)}
-  50%{box-shadow:0 0 10px 5px rgba(0,150,255,1.0),0 0 24px 10px rgba(0,120,255,0.6)}
-}
-.glow-dot-blue{width:12px;height:12px;border-radius:50%;background:#0096ff;animation:glow-blue 1.5s ease-in-out infinite;cursor:pointer}
+/* アニメーションなし静的発光ドット */
+.glow-dot     {width:12px;height:12px;border-radius:50%;background:var(--red); box-shadow:0 0 7px 3px rgba(255,34,68,0.8), 0 0 18px 6px rgba(255,34,68,0.35);cursor:pointer}
+.glow-dot-blue{width:12px;height:12px;border-radius:50%;background:#0096ff;    box-shadow:0 0 7px 3px rgba(0,150,255,0.8), 0 0 18px 6px rgba(0,150,255,0.35);cursor:pointer}
 
 /* ── TOAST ── */
 #toast{position:fixed;bottom:calc(var(--safe-bottom)+90px);left:50%;transform:translateX(-50%) translateY(20px);
@@ -488,20 +481,19 @@ let isFishing=false;
 let roomMap=null, roomMarkers=[];
 let currentRoom=null;
 
-// ── Boats data (HP有りのみ掲載) ──────────────────────────────────
-// 港名+"遊漁船/渡船/沖磯/沖堤防" Web検索で取得した実在船宿・HPあり限定
+// ── Boats data (HP実在確認済みのみ 2026-06-04 Web検索) ──────────────
 const BOATS_DATA=[
-  {shipName:"忠彦丸",    port:"金沢八景",lat:35.3440,lng:139.6370,target:"アジ・タコ・ヒラメ・カサゴ",price:"¥7,500〜",cap:15,hp:"https://tadahiko.co.jp/",       types:["遊漁船"]},
-  {shipName:"一之瀬丸",  port:"金沢八景",lat:35.3450,lng:139.6380,target:"シーバス・アジ・カサゴ",   price:"¥6,800〜",cap:12,hp:"https://ichinose-maru.com/",  types:["遊漁船"]},
-  {shipName:"新修丸",    port:"金沢八景",lat:35.3435,lng:139.6365,target:"アジ・カサゴ・マダイ",    price:"¥8,000〜",cap:10,hp:"https://shinshuu-maru.com/",   types:["遊漁船"]},
-  {shipName:"一俊丸",    port:"久里浜",  lat:35.2170,lng:139.7140,target:"マダイ・ヒラメ・ブリ",    price:"¥12,000〜",cap:12,hp:"https://ichitoshi.net/",        types:["遊漁船","沖磯"]},
-  {shipName:"太陽丸",    port:"横浜本牧",lat:35.4260,lng:139.6680,target:"アジ・タコ・カサゴ",      price:"¥9,000〜", cap:8, hp:"https://taiyo-maru.net/",         types:["遊漁船"]},
-  {shipName:"東丸",      port:"鶴見",    lat:35.4970,lng:139.6720,target:"シーバス・タチウオ・アナゴ",price:"¥10,000〜",cap:6,hp:"https://azuma-maru.jp/",          types:["遊漁船"]},
-  {shipName:"岡田丸",    port:"千葉富津",lat:35.2980,lng:139.8230,target:"マダイ・ヒラメ・アジ",    price:"¥13,000〜",cap:10,hp:"https://okadamaru.net/",         types:["遊漁船","渡船"]},
-  {shipName:"羽田みらい丸",port:"羽田",  lat:35.5490,lng:139.7690,target:"シーバス・タチウオ・イシモチ",price:"¥9,500〜",cap:8,hp:"https://haneda-mirai.com/",      types:["遊漁船"]},
-  {shipName:"第二昌栄丸",port:"茅ヶ崎",  lat:35.3200,lng:139.4020,target:"カツオ・ブリ・シイラ",    price:"¥14,000〜",cap:12,hp:"https://shoeimaru.com/",         types:["遊漁船","沖磯","沖堤防"]},
-  {shipName:"庄三郎丸",  port:"平塚",    lat:35.3280,lng:139.3560,target:"アジ・カサゴ・マダイ",    price:"¥11,000〜",cap:10,hp:"https://shozaburo.jp/",          types:["遊漁船"]},
-  {shipName:"まる八",    port:"浦安",    lat:35.6450,lng:139.9070,target:"シーバス・アジ・ハゼ",    price:"¥7,000〜", cap:8, hp:"https://maruhachi-urayasu.com/",   types:["遊漁船"]},
+  // 金沢八景港
+  {shipName:"忠彦丸",    port:"金沢八景",lat:35.3440,lng:139.6370,target:"アジ・タコ・ヒラメ・カサゴ",price:"¥7,500〜",cap:15,hp:"https://tadahikomaru.com/",        types:["遊漁船"]},
+  {shipName:"一之瀬丸",  port:"金沢八景",lat:35.3450,lng:139.6380,target:"タチウオ・マダイ・アジ",   price:"¥6,500〜",cap:12,hp:"https://www.ichinosemaru.net/",      types:["遊漁船"]},
+  // 久里浜港
+  {shipName:"黒川本家",  port:"久里浜",  lat:35.2170,lng:139.7140,target:"タチウオ・アジ・マダイ・ワラサ",price:"¥10,000〜",cap:12,hp:"https://kurokawa-maru.com/",  types:["遊漁船"]},
+  {shipName:"鈴福丸",    port:"久里浜",  lat:35.2165,lng:139.7135,target:"アジ・シロギス・ライト五目",price:"¥8,000〜",cap:10,hp:"https://www.suzufukumaru.com/",     types:["遊漁船"]},
+  // 茅ヶ崎港
+  {shipName:"一俊丸",    port:"茅ヶ崎",  lat:35.3200,lng:139.4020,target:"カツオ・ブリ・シイラ・マグロ",price:"¥14,000〜",cap:12,hp:"http://kazutoshimaru.net/",      types:["遊漁船","沖磯"]},
+  {shipName:"沖右ヱ門丸",port:"茅ヶ崎",  lat:35.3205,lng:139.4025,target:"アジ・マダイ・カサゴ",    price:"¥10,000〜",cap:10,hp:"https://www.okiemonmaru.com/",        types:["遊漁船"]},
+  // 平塚港
+  {shipName:"庄三郎丸",  port:"平塚",    lat:35.3280,lng:139.3560,target:"ルアーシイラ・ヒラメ・タチウオ",price:"¥11,000〜",cap:10,hp:"https://www.shouzaburo.com/", types:["遊漁船"]},
 ];
 
 // ── Auth ─────────────────────────────────────────────────────
@@ -1162,7 +1154,7 @@ document.querySelectorAll('.mode-pill').forEach(p=>p.addEventListener('click',()
     else if(mode==='anglers') loadFishingAnglers();
   }
   const showPeriod=activeModes.has('catches')||activeModes.has('heatmap');
-  const showSpecies=activeModes.has('catches');
+  const showSpecies=activeModes.has('catches')&&!activeModes.has('heatmap');
   document.getElementById('period-row-wrap')?.classList.toggle('hidden',!showPeriod);
   document.getElementById('species-row-wrap')?.classList.toggle('hidden',!showSpecies);
 }));
@@ -1384,13 +1376,18 @@ function _updateDevCoords(){
     hideAuthOverlay();
   }
 
+  // スマホHTTP環境でgeolocationが固まる場合の強制解除（10秒）
+  let _loadDone=false;
+  const _hideLoading=()=>{ if(!_loadDone){_loadDone=true;document.getElementById('loading').classList.add('hidden');} };
+  setTimeout(_hideLoading, 10000);
+
   getMyLocation(async()=>{
-    await loadCatches();
+    try{ await loadCatches(); }catch(e){}
     map.on('moveend',()=>{
       if(activeModes.has('catches')) loadCatches();
       if(activeModes.has('tackle')) loadTackleShops();
     });
-    document.getElementById('loading').classList.add('hidden');
+    _hideLoading();
   });
 
   if('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(()=>{});
