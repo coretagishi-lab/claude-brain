@@ -597,7 +597,15 @@ function removeCanvasHeat(){
 
 function scoreToRgb(score){
   const t=Math.max(0,Math.min(1,score));
-  const stops=[[0,50,160,90],[0,100,220,145],[0,201,177,180],[245,166,35,210],[231,76,60,225],[180,30,20,240]];
+  // 青(低)→シアン→緑→琥珀→橙→赤(高)  α: 0.70→0.90
+  const stops=[
+    [0,  100,255,178],  // 0.0 blue   α=0.70
+    [0,  210,255,188],  // 0.2 cyan   α=0.74
+    [60, 220, 60,198],  // 0.4 green  α=0.78
+    [255,200,  0,212],  // 0.6 amber  α=0.83
+    [255, 80,  0,222],  // 0.8 orange α=0.87
+    [255, 30, 30,230],  // 1.0 red    α=0.90
+  ];
   const n=stops.length-1;
   const i=Math.min(Math.floor(t*n),n-1);
   const f=t*n-i;
@@ -634,16 +642,17 @@ function createCanvasHeatmap(map,points,opts){
         const [r,g,b,a]=scoreToRgb(score);
         const al=a/255;
         const grad=ctx.createRadialGradient(pt.x,pt.y,0,pt.x,pt.y,radius);
-        grad.addColorStop(0,`rgba(${r},${g},${b},${al})`);
-        grad.addColorStop(0.45,`rgba(${r},${g},${b},${(al*0.55).toFixed(3)})`);
-        grad.addColorStop(1,'rgba(0,0,0,0)');
+        grad.addColorStop(0,   `rgba(${r},${g},${b},${al.toFixed(3)})`);
+        grad.addColorStop(0.55,`rgba(${r},${g},${b},${(al*0.82).toFixed(3)})`);
+        grad.addColorStop(0.85,`rgba(${r},${g},${b},${(al*0.40).toFixed(3)})`);
+        grad.addColorStop(1,   'rgba(0,0,0,0)');
         ctx.fillStyle=grad;
         ctx.beginPath();
         ctx.arc(pt.x,pt.y,radius,0,Math.PI*2);
         ctx.fill();
       }catch(e){}
     });
-    canvas.style.opacity='0.75';
+    canvas.style.opacity='0.92';
   }
 
   redraw();
@@ -739,29 +748,28 @@ function addCatchPin(c){
   catchMarkers.push(m);
 }
 
-// ── Heatmap (川ライン・VPS処理) ───────────────────────────────
+// ── Heatmap タイル方式（表示範囲±0.1度のみ取得）──────────────
 async function renderHeatmap(){
-  showToast('🌡 川ヒートマップ計算中...');
   removeCanvasHeat();
   try{
     const lat=myLat||map.getCenter().lat;
     const lng=myLng||map.getCenter().lng;
     const zoom=map.getZoom();
     const b=map.getBounds();
-    const n=b.getNorth().toFixed(5),s=b.getSouth().toFixed(5);
-    const e=b.getEast().toFixed(5),w=b.getWest().toFixed(5);
+    const pad=0.1;
+    const n=(b.getNorth()+pad).toFixed(5);
+    const s=(b.getSouth()-pad).toFixed(5);
+    const e=(b.getEast() +pad).toFixed(5);
+    const w=(b.getWest() -pad).toFixed(5);
     const data=await fetch(`${API}/api/heatmap?lat=${lat}&lng=${lng}&zoom=${zoom}&n=${n}&s=${s}&e=${e}&w=${w}&fish=seabass`)
       .then(r=>r.json());
-    if(!data||!data.points||!data.points.length){
-      showToast('この範囲に川データなし');return;
-    }
-    // 河川モード: 細い半径で川ラインとして描画
+    if(!data||!data.points||!data.points.length) return;
     canvasHeatLayer=createCanvasHeatmap(map,data.points,{
-      radiusFn: z=>Math.max(4,Math.min(18,z-5))
+      radiusFn: z=>Math.max(5,Math.min(22,z-4))
     });
     const names=(data.river_names||[]).slice(0,4).join('・');
-    showToast(`🌡 シーバス川マップ: ${data.points.length}pt ${names?`(${names})`:''}`);
-  }catch(e){console.error('heatmap:',e);showToast('ヒートマップ取得失敗','error');}
+    showToast(`🌡 ${data.points.length}pt ${names?`(${names})`:''}`);
+  }catch(e){console.error('heatmap:',e);}
 }
 
 function scheduleHeatmapRefresh(){
