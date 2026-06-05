@@ -1,12 +1,12 @@
 ---
 type: task
 status: idle
-checkpoint: ヒートマップ: ピクセル検出方式（SW v7）
+checkpoint: ヒートマップ: GeoJSONポリゴン方式デプロイ完了（SW v7）
 updated_at: 2026-06-05
 ---
 
 ## checkpoint
-CartoDB Darkタイルのピクセル色を読み取り水面(R<40,B>R,G<60)を検出してrgba(0,100,255,0.6)で塗る方式に変更完了。GeoJSON/Overpass依存をゼロにしてオフライン動作可能になった。
+VPSに最新index.html（GeoJSONポリゴン方式）をデプロイ完了。`/data/kanto_rivers.geojson`をフェッチしてL.geoJSONでrgba(0,100,255,0.6)のポリゴン描画。river-tilesディレクトリは旧方式の残骸で現行コードでは不使用。
 
 ## checklist
 - [x] PROJECT_STATUS.md 作成
