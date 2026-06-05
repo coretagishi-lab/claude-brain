@@ -812,10 +812,12 @@ _KOKUDO_API         = "https://geoshape.ex.nii.ac.jp/river/api/"
 _TOKYO23_BBOX       = {"s": 35.53, "n": 35.82, "w": 139.59, "e": 139.92}
 _KOKUDO_GEOJSON_PATH = Path(__file__).parent / "static" / "data" / "kanto_rivers.geojson"
 _KOKUDO_REFRESH_SEC = 86400  # 24時間（静的データ）
+_GEOJSON_CACHE: dict = None  # kanto_rivers.geojson メモリキャッシュ
 
 
 def _fetch_and_save_kokudo_rivers():
     """国土数値情報河川APIから東京23区の川GeoJSONを取得してstatic/data/に保存。"""
+    global _GEOJSON_CACHE
     import urllib.request, json as _j
     b = _TOKYO23_BBOX
     url = f"{_KOKUDO_API}?bbox={b['w']},{b['s']},{b['e']},{b['n']}"
@@ -825,6 +827,7 @@ def _fetch_and_save_kokudo_rivers():
     _KOKUDO_GEOJSON_PATH.parent.mkdir(parents=True, exist_ok=True)
     with open(_KOKUDO_GEOJSON_PATH, "w", encoding="utf-8") as f:
         _j.dump(geojson, f, ensure_ascii=False, separators=(',', ':'))
+    _GEOJSON_CACHE = None  # ファイル更新時にキャッシュ無効化
 
 
 def start_kanto_cache_refresh():
@@ -1486,68 +1489,63 @@ def _centerline_to_polygon(nodes: list, width_m: float) -> list:
 
 def get_water_polygon_data(bbox_s: float, bbox_n: float,
                             bbox_w: float, bbox_e: float, zoom: int) -> dict:
-    """SQLite川中心線から川幅付きL.polygonデータを生成（Overpass不使用）。
-    osm_rivers の width / length_km から幅を推定してポリゴン化する。"""
+    """kanto_rivers.geojsonからbbox内のPolygonフィーチャーを取得してGeoJSON形式で返す。
+    内部呼び出し用に polygons[].coords ([lat,lng]ペア) も同時に返す。"""
+    global _GEOJSON_CACHE
     import json as _json
 
-    if zoom <= 12:
-        min_length = 10.0
-    elif zoom <= 14:
-        min_length = 1.0
-    else:
-        min_length = 0.0
+    if _GEOJSON_CACHE is None and _KOKUDO_GEOJSON_PATH.exists():
+        try:
+            with open(_KOKUDO_GEOJSON_PATH, "r", encoding="utf-8") as f:
+                _GEOJSON_CACHE = _json.load(f)
+        except Exception:
+            pass
 
-    # ノード間引き間隔（ズームに応じて）
-    step = max(1, {8:12, 9:8, 10:6, 11:4, 12:3, 13:2, 14:1, 15:1, 16:1, 17:1}.get(zoom, 3))
+    if not _GEOJSON_CACHE:
+        return {"type": "FeatureCollection", "features": [], "polygons": [], "count": 0, "status": "no_data"}
 
-    with get_db() as conn:
-        count = conn.execute("SELECT COUNT(*) FROM osm_rivers").fetchone()[0]
-        if count == 0:
-            return {"polygons": [], "count": 0, "status": "no_data"}
+    pad = 0.01
+    filtered_features = []
+    polygons = []
 
-        sql = ("SELECT name, width, length_km, nodes_json FROM osm_rivers "
-               "WHERE max_lat >= ? AND min_lat <= ? AND max_lng >= ? AND min_lng <= ?")
-        params = [bbox_s, bbox_n, bbox_w, bbox_e]
-        if min_length > 0:
-            sql += " AND length_km >= ?"
-            params.append(min_length)
-        rows = conn.execute(sql, params).fetchall()
+    for feature in _GEOJSON_CACHE.get("features", []):
+        geom = feature.get("geometry", {})
+        geom_type = geom.get("type", "")
+        coords = geom.get("coordinates", [])
 
-    pad = 0.05
-    result = []
-    for r in rows:
-        nodes_all = _json.loads(r["nodes_json"])
-        # ビューポート内のノードのみ使用（±pad度の余裕付き）
-        nodes = [n for n in nodes_all
-                 if bbox_s - pad <= n[0] <= bbox_n + pad
-                 and bbox_w - pad <= n[1] <= bbox_e + pad]
-        if len(nodes) < 2:
+        if geom_type == "Polygon":
+            ring = coords[0] if coords else []
+        elif geom_type == "MultiPolygon":
+            ring = coords[0][0] if coords and coords[0] else []
+        else:
             continue
-        # ノード間引き
-        nodes_s = nodes[::step]
-        if len(nodes_s) < 2:
-            nodes_s = nodes[:2]
 
-        # 川幅推定
-        w = r["width"]
-        if not w:
-            km = r["length_km"] or 0
-            if km >= 30: w = 250
-            elif km >= 10: w = 100
-            elif km >= 3:  w = 50
-            elif km >= 1:  w = 25
-            else:          w = 12
-
-        poly = _centerline_to_polygon(nodes_s, float(w))
-        if len(poly) < 3:
+        if len(ring) < 3:
             continue
-        result.append({
-            "coords":  poly,
-            "name":    r["name"] or "",
-            "width_m": int(w),
+
+        lngs = [c[0] for c in ring]
+        lats = [c[1] for c in ring]
+        if max(lats) < bbox_s - pad or min(lats) > bbox_n + pad:
+            continue
+        if max(lngs) < bbox_w - pad or min(lngs) > bbox_e + pad:
+            continue
+
+        filtered_features.append(feature)
+        # 内部呼び出し用: [lat, lng] ペア（_pip_fast / _build_grid_heatmap が期待する形式）
+        nodes = [[c[1], c[0]] for c in ring]
+        polygons.append({
+            "coords": nodes,
+            "name": (feature.get("properties") or {}).get("name", ""),
+            "width_m": 50,
         })
 
-    return {"polygons": result, "count": len(result), "status": "ok"}
+    return {
+        "type": "FeatureCollection",
+        "features": filtered_features,
+        "polygons": polygons,
+        "count": len(filtered_features),
+        "status": "ok",
+    }
 
 # ── Admin: custom river areas ─────────────────────────────────────────────────
 
