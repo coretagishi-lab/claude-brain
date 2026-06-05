@@ -614,6 +614,56 @@ function scoreToRgb(score){
   return kp[kp.length-1][1];
 }
 
+function scoreToColor5(score){
+  if(score<=20) return null;
+  if(score<=40) return 'rgba(0,100,255,0.6)';
+  if(score<=60) return 'rgba(0,230,100,0.7)';
+  if(score<=80) return 'rgba(255,200,0,0.8)';
+  return 'rgba(255,0,0,0.9)';
+}
+
+function createGridHeatmap(map,points,cellSizeM){
+  const pane=map.getPanes().overlayPane;
+  const canvas=document.createElement('canvas');
+  canvas.style.cssText='position:absolute;top:0;left:0;pointer-events:none;z-index:300;opacity:0;transition:opacity 0.5s';
+  pane.appendChild(canvas);
+
+  function redraw(){
+    const size=map.getSize();
+    canvas.width=size.x;
+    canvas.height=size.y;
+    const topLeft=map.containerPointToLayerPoint([0,0]);
+    L.DomUtil.setPosition(canvas,topLeft);
+    const ctx=canvas.getContext('2d');
+    ctx.clearRect(0,0,size.x,size.y);
+    if(!points.length){canvas.style.opacity='1.0';return;}
+
+    // セルサイズをピクセルに変換（代表点で計算）
+    const p0=points[Math.floor(points.length/2)];
+    const cos_lat=Math.cos(p0.lat*Math.PI/180);
+    const dlat=cellSizeM/111000;
+    const dlng=cellSizeM/(111000*cos_lat);
+    const pt0=map.latLngToContainerPoint(L.latLng(p0.lat,p0.lng));
+    const pt1=map.latLngToContainerPoint(L.latLng(p0.lat+dlat,p0.lng+dlng));
+    const cellW=Math.max(2,Math.abs(pt1.x-pt0.x)+1);
+    const cellH=Math.max(2,Math.abs(pt1.y-pt0.y)+1);
+
+    points.forEach(({lat,lng,score})=>{
+      const color=scoreToColor5(score);
+      if(!color) return;
+      const pt=map.latLngToContainerPoint(L.latLng(lat,lng));
+      if(pt.x<-cellW||pt.x>size.x+cellW||pt.y<-cellH||pt.y>size.y+cellH) return;
+      ctx.fillStyle=color;
+      ctx.fillRect(pt.x-cellW/2,pt.y-cellH/2,cellW,cellH);
+    });
+    canvas.style.opacity='1.0';
+  }
+
+  redraw();
+  map.on('moveend zoomend',redraw);
+  return {remove(){canvas.remove();map.off('moveend zoomend',redraw);}};
+}
+
 function createCanvasHeatmap(map,points,opts){
   const pane=map.getPanes().overlayPane;
   const canvas=document.createElement('canvas');
@@ -629,7 +679,6 @@ function createCanvasHeatmap(map,points,opts){
     const ctx=canvas.getContext('2d');
     ctx.clearRect(0,0,size.x,size.y);
     const zoom=map.getZoom();
-    // opts.radiusFn があれば使用（河川モード: 細い線）、なければデフォルト
     const radius=opts&&opts.radiusFn?opts.radiusFn(zoom):Math.max(30,Math.min(80,zoom*5.5-20));
     points.forEach(({lat,lng,score})=>{
       try{
@@ -750,7 +799,7 @@ function addCatchPin(c){
   catchMarkers.push(m);
 }
 
-// ── Heatmap: サーモグラフィー Canvas ─────────────────────────────
+// ── Heatmap: グリッド Canvas ───────────────────────────────────
 async function renderHeatmap(silent=false){
   removeCanvasHeat();
   removeRiverPolygons();
@@ -768,11 +817,8 @@ async function renderHeatmap(silent=false){
     });
     const data=await fetch(`${API}/api/heatmap?${params}`).then(r=>r.json());
     if(!data||!data.points||!data.points.length) return;
-    // パッチ状になるよう大きめのradius
-    canvasHeatLayer=createCanvasHeatmap(map,data.points,{
-      radiusFn: z=>Math.max(22,Math.min(70,z*7-60))
-    });
-    // ptトースト削除（silent/non-silentともに非表示）
+    const cellSizeM=data.cell_size_m||50;
+    canvasHeatLayer=createGridHeatmap(map,data.points,cellSizeM);
   }catch(e){console.error('heatmap:',e);}
 }
 

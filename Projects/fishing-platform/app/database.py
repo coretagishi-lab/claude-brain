@@ -1104,15 +1104,16 @@ def get_river_heatmap(lat: float, lng: float, zoom: int = 13,
 
         all_polys = osm_polys + sql_polys
         if all_polys:
-            poly_iv = {10:200,11:100,12:50,13:25,14:12,15:8,16:5,17:3}.get(zoom, 25)
-            pts = _build_shore_gradient_points(
-                all_polys, poly_iv, bbox_s, bbox_n, bbox_w, bbox_e,
-                scoring_feats=scoring_feats
+            grid_size_m = _ZOOM_INTERVAL.get(zoom, 50)
+            pts = _build_grid_heatmap(
+                all_polys, grid_size_m, bbox_s, bbox_n, bbox_w, bbox_e,
+                scoring_feats=scoring_feats, tides=tides
             )
             names = list(dict.fromkeys(p.get("name","") for p in all_polys if p.get("name")))
             return {
                 "points": pts, "species": "シーバス", "water_based": True,
                 "river_count": len(all_polys), "river_names": names[:20], "cache_age_min": 0,
+                "cell_size_m": grid_size_m,
             }
 
     # ── 中心線スコアリング（zoom<11 またはポリゴンなし）
@@ -1296,6 +1297,130 @@ def _feature_score_boost(lat: float, lng: float, scoring_feats: dict) -> float:
         if d_m < 40:
             boost = max(boost, 0.15 * (1 - d_m / 40))
     return min(boost, 0.35)
+
+
+def _pip_fast(lat: float, lng: float, nodes: list) -> bool:
+    """Ray casting point-in-polygon check. nodes: list of (lat, lng)."""
+    n = len(nodes)
+    inside = False
+    j = n - 1
+    for i in range(n):
+        yi, xi = nodes[i]
+        yj, xj = nodes[j]
+        if (yi > lat) != (yj > lat):
+            if lng < (xj - xi) * (lat - yi) / (yj - yi) + xi:
+                inside = not inside
+        j = i
+    return inside
+
+
+def _dist_to_shore_m(lat: float, lng: float, nodes: list) -> float:
+    """Approximate distance to polygon boundary in meters (nearest node)."""
+    min_d = float('inf')
+    step = max(1, len(nodes) // 60)
+    for i in range(0, len(nodes), step):
+        d = _dist_km(lat, lng, nodes[i][0], nodes[i][1]) * 1000
+        if d < min_d:
+            min_d = d
+    return min_d
+
+
+def _grid_score_cell(g_lat: float, g_lng: float, dist_shore_m: float,
+                     scoring_feats: dict, tides: dict) -> int:
+    """新グリッドスコアリング（0-100）。ユーザー指定ボーナス方式。"""
+    score = 0
+
+    # 橋脚から3m以内: +50点
+    bridge_added = False
+    for bla, blo, btype, _, _ in _SEABASS_LANDMARKS:
+        if btype == "bridge_pier":
+            if _dist_km(g_lat, g_lng, bla, blo) * 1000 <= 3:
+                score += 50; bridge_added = True; break
+    if not bridge_added:
+        for bla, blo, _ in scoring_feats.get("bridges", []):
+            if _dist_km(g_lat, g_lng, bla, blo) * 1000 <= 3:
+                score += 50; break
+
+    # 合流点から20m以内: +45点
+    conf_added = False
+    for bla, blo, btype, _, _ in _SEABASS_LANDMARKS:
+        if btype == "confluence":
+            if _dist_km(g_lat, g_lng, bla, blo) * 1000 <= 20:
+                score += 45; conf_added = True; break
+    if not conf_added:
+        for ola, olo in scoring_feats.get("outfalls", []):
+            if _dist_km(g_lat, g_lng, ola, olo) * 1000 <= 20:
+                score += 45; break
+
+    # 常夜灯から10m以内: +35点
+    for lla, llo in scoring_feats.get("lamps", []):
+        if _dist_km(g_lat, g_lng, lla, llo) * 1000 <= 10:
+            score += 35; break
+
+    # 川岸から5m以内: +20点
+    if dist_shore_m <= 5:
+        score += 20
+
+    # 夜間（18-5時）: +20点
+    hour = datetime.now().hour
+    if hour >= 18 or hour < 5:
+        score += 20
+
+    # 上げ潮時: +20点
+    if "上げ" in (tides.get("current", "") if tides else ""):
+        score += 20
+
+    return min(100, score)
+
+
+def _build_grid_heatmap(
+    polygons: list, grid_size_m: float,
+    bbox_s: float, bbox_n: float, bbox_w: float, bbox_e: float,
+    scoring_feats: dict, tides: dict,
+) -> list:
+    """川ポリゴン内をgrid_size_m間隔のグリッドに分割しスコアリング。"""
+    cos_lat = math.cos(math.radians((bbox_s + bbox_n) / 2))
+    dlat = grid_size_m / 111000.0
+    dlng = grid_size_m / (111000.0 * max(0.01, cos_lat))
+    MAX_POINTS = 15000
+
+    # ポリゴンごとにbboxを事前計算
+    poly_bboxes = []
+    for poly in polygons:
+        nodes = poly["nodes"]
+        if len(nodes) < 4:
+            poly_bboxes.append(None)
+            continue
+        lats = [n[0] for n in nodes]
+        lngs = [n[1] for n in nodes]
+        poly_bboxes.append((min(lats), max(lats), min(lngs), max(lngs)))
+
+    points: list = []
+    lat = bbox_s + dlat * 0.5
+    while lat <= bbox_n and len(points) < MAX_POINTS:
+        lng = bbox_w + dlng * 0.5
+        while lng <= bbox_e and len(points) < MAX_POINTS:
+            shore_d = float('inf')
+            in_water = False
+            for pi, poly in enumerate(polygons):
+                pb = poly_bboxes[pi]
+                if pb is None:
+                    continue
+                if not (pb[0] - dlat <= lat <= pb[1] + dlat and
+                        pb[2] - dlng <= lng <= pb[3] + dlng):
+                    continue
+                nodes = poly["nodes"]
+                if _pip_fast(lat, lng, nodes):
+                    in_water = True
+                    shore_d = _dist_to_shore_m(lat, lng, nodes)
+                    break
+            if in_water:
+                s = _grid_score_cell(lat, lng, shore_d, scoring_feats, tides)
+                if s > 0:
+                    points.append({"lat": round(lat, 6), "lng": round(lng, 6), "score": s})
+            lng += dlng
+        lat += dlat
+    return points
 
 
 def _build_shore_gradient_points(
