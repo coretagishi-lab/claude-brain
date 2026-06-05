@@ -799,26 +799,38 @@ function addCatchPin(c){
   catchMarkers.push(m);
 }
 
-// ── Heatmap: グリッド Canvas ───────────────────────────────────
+// ── Heatmap: 川ポリゴン単色表示 ─────────────────────────────────
 async function renderHeatmap(silent=false){
   removeCanvasHeat();
   removeRiverPolygons();
   try{
-    const lat=myLat||map.getCenter().lat;
-    const lng=myLng||map.getCenter().lng;
-    const zoom=map.getZoom();
+    if(!riverGeoData){
+      const res=await fetch('/data/kanto_rivers.geojson');
+      riverGeoData=await res.json();
+      riverGeoData.features.forEach(f=>{
+        const cs=f.geometry.coordinates[0];
+        let minLat=90,maxLat=-90,minLng=180,maxLng=-180;
+        cs.forEach(c=>{
+          if(c[1]<minLat)minLat=c[1]; if(c[1]>maxLat)maxLat=c[1];
+          if(c[0]<minLng)minLng=c[0]; if(c[0]>maxLng)maxLng=c[0];
+        });
+        f._bbox=[minLng,minLat,maxLng,maxLat];
+      });
+    }
     const b=map.getBounds();
-    const pad=0.02;
-    const params=new URLSearchParams({
-      lat,lng,zoom,
-      n:(b.getNorth()+pad).toFixed(5), s:(b.getSouth()-pad).toFixed(5),
-      e:(b.getEast() +pad).toFixed(5), w:(b.getWest() -pad).toFixed(5),
-      fish:'seabass'
-    });
-    const data=await fetch(`${API}/api/heatmap?${params}`).then(r=>r.json());
-    if(!data||!data.points||!data.points.length) return;
-    const cellSizeM=data.cell_size_m||50;
-    canvasHeatLayer=createGridHeatmap(map,data.points,cellSizeM);
+    const s=b.getSouth(),n=b.getNorth(),w=b.getWest(),e=b.getEast();
+    const filtered={
+      type:'FeatureCollection',
+      features:riverGeoData.features.filter(f=>{
+        const [fl,fb,fr,ft]=f._bbox;
+        return ft>=s&&fb<=n&&fr>=w&&fl<=e;
+      })
+    };
+    if(!filtered.features.length) return;
+    const layer=L.geoJSON(filtered,{
+      style:{fillColor:'#0064ff',fillOpacity:0.5,color:'#0064ff',weight:1,opacity:0.5}
+    }).addTo(map);
+    riverPolygonLayers.push(layer);
   }catch(e){console.error('heatmap:',e);}
 }
 
