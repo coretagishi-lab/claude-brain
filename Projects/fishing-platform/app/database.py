@@ -125,6 +125,16 @@ def init_db():
                 lng REAL NOT NULL
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS custom_river_areas (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                area_type  TEXT DEFAULT 'river' CHECK(area_type IN ('river','banned')),
+                lat        REAL NOT NULL,
+                lng        REAL NOT NULL,
+                radius_m   REAL DEFAULT 80,
+                created_at TEXT DEFAULT (datetime('now','localtime'))
+            )
+        """)
         conn.commit()
 
 # ── Catches ───────────────────────────────────────────────────
@@ -797,90 +807,38 @@ def _score_seabass_point(g_lat: float, g_lng: float,
 
     return min(100.0, score)
 
-# ── 関東全域川データ (SQLite永続化・バックグラウンド更新) ────────────────
-_KANTO_BBOX         = "34.8,138.0,37.2,141.2"   # 関東全域（利根川〜相模川）
-_KANTO_REFRESH_SEC  = 3600                        # 1時間ごとに更新
+# ── 国土数値情報 河川データ（東京23区・GeoJSON静的ファイル生成）──────────
+_KOKUDO_API         = "https://geoshape.ex.nii.ac.jp/river/api/"
+_TOKYO23_BBOX       = {"s": 35.53, "n": 35.82, "w": 139.59, "e": 139.92}
+_KOKUDO_GEOJSON_PATH = Path(__file__).parent / "static" / "data" / "kanto_rivers.geojson"
+_KOKUDO_REFRESH_SEC = 86400  # 24時間（静的データ）
 
-def _fetch_kanto_rivers_all() -> dict:
-    """関東全域 waterway=river を一括取得（ditch/drain/weir/sluice除外）"""
-    query = (
-        f"[out:json][timeout:120];\n("
-        f'way["waterway"="river"]({_KANTO_BBOX});'
-        f'node["waterway"~"weir|sluice_gate|floodgate"]({_KANTO_BBOX});'
-        f");\nout geom;"
-    )
-    raw = _overpass_fetch_osm(query)
-    rivers, weirs = [], []
-    for el in raw.get("elements", []):
-        tags  = el.get("tags", {})
-        ww    = tags.get("waterway", "")
-        etype = el.get("type", "")
-        if etype == "way" and ww == "river":
-            if tags.get("tunnel") == "yes" or tags.get("covered") == "yes":
-                continue
-            w_str = tags.get("width") or tags.get("est_width") or ""
-            width = None
-            try:
-                width = float(w_str.split()[0])
-                if width < 3:
-                    continue
-            except Exception:
-                pass
-            if tags.get("intermittent") == "yes":
-                continue
-            geom  = el.get("geometry", [])
-            nodes = [(float(n["lat"]), float(n["lon"])) for n in geom if "lat" in n and "lon" in n]
-            if len(nodes) >= 2:
-                # 川の長さを計算（幅タグがない場合の水深代替指標）
-                length_km = sum(
-                    _dist_km(nodes[i-1][0], nodes[i-1][1], nodes[i][0], nodes[i][1])
-                    for i in range(1, len(nodes))
-                )
-                rivers.append({"nodes": nodes, "name": tags.get("name", ""),
-                               "width": width, "length_km": round(length_km, 2)})
-        elif etype == "node" and ww in ("weir", "sluice_gate", "floodgate"):
-            la, lo = el.get("lat"), el.get("lon")
-            if la and lo:
-                weirs.append((float(la), float(lo)))
-    return {"rivers": rivers, "weirs": weirs}
 
-def _save_rivers_to_db(rivers: list, weirs: list):
-    """Overpassから取得した川データをSQLiteに保存（既存データを置換）"""
-    import json as _json
-    with get_db() as conn:
-        conn.execute("DELETE FROM osm_rivers")
-        conn.execute("DELETE FROM osm_weirs")
-        for r in rivers:
-            nodes = r["nodes"]
-            lats  = [n[0] for n in nodes]
-            lngs  = [n[1] for n in nodes]
-            conn.execute(
-                "INSERT INTO osm_rivers (name, width, length_km, nodes_json, min_lat, max_lat, min_lng, max_lng) VALUES (?,?,?,?,?,?,?,?)",
-                (r.get("name") or "", r.get("width"), r.get("length_km") or 0,
-                 _json.dumps(nodes, separators=(',', ':')),
-                 min(lats), max(lats), min(lngs), max(lngs))
-            )
-        for lat, lng in weirs:
-            conn.execute("INSERT INTO osm_weirs (lat, lng) VALUES (?,?)", (lat, lng))
-        conn.commit()
+def _fetch_and_save_kokudo_rivers():
+    """国土数値情報河川APIから東京23区の川GeoJSONを取得してstatic/data/に保存。"""
+    import urllib.request, json as _j
+    b = _TOKYO23_BBOX
+    url = f"{_KOKUDO_API}?bbox={b['w']},{b['s']},{b['e']},{b['n']}"
+    req = urllib.request.Request(url, headers={"User-Agent": "AnglerMap/5.0"})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        geojson = _j.loads(r.read())
+    _KOKUDO_GEOJSON_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(_KOKUDO_GEOJSON_PATH, "w", encoding="utf-8") as f:
+        _j.dump(geojson, f, ensure_ascii=False, separators=(',', ':'))
+
 
 def start_kanto_cache_refresh():
-    """バックグラウンドスレッドで川データを段階的にSQLiteへ保存（メモリに蓄積しない）"""
+    """バックグラウンドスレッドで国土数値情報河川GeoJSONを定期取得・保存。"""
     def _loop():
-        # 初回: DBが空の場合は即座に取得
-        with get_db() as conn:
-            count = conn.execute("SELECT COUNT(*) FROM osm_rivers").fetchone()[0]
-        if count == 0:
+        if not _KOKUDO_GEOJSON_PATH.exists():
             try:
-                data = _fetch_kanto_rivers_all()
-                _save_rivers_to_db(data["rivers"], data["weirs"])
+                _fetch_and_save_kokudo_rivers()
             except Exception:
                 pass
         while True:
-            _time.sleep(_KANTO_REFRESH_SEC)
+            _time.sleep(_KOKUDO_REFRESH_SEC)
             try:
-                data = _fetch_kanto_rivers_all()
-                _save_rivers_to_db(data["rivers"], data["weirs"])
+                _fetch_and_save_kokudo_rivers()
             except Exception:
                 pass
     threading.Thread(target=_loop, daemon=True).start()
@@ -1590,6 +1548,33 @@ def get_water_polygon_data(bbox_s: float, bbox_n: float,
         })
 
     return {"polygons": result, "count": len(result), "status": "ok"}
+
+# ── Admin: custom river areas ─────────────────────────────────────────────────
+
+def get_custom_areas() -> list:
+    with get_db() as conn:
+        rows = conn.execute("SELECT * FROM custom_river_areas ORDER BY created_at DESC").fetchall()
+        return [dict(r) for r in rows]
+
+def save_custom_areas(areas: list) -> int:
+    with get_db() as conn:
+        conn.execute("DELETE FROM custom_river_areas")
+        for a in areas:
+            conn.execute(
+                "INSERT INTO custom_river_areas (area_type, lat, lng, radius_m) VALUES (?,?,?,?)",
+                (a.get("area_type", "river"), float(a["lat"]), float(a["lng"]), float(a.get("radius_m", 80)))
+            )
+        conn.commit()
+        return len(areas)
+
+def get_custom_area_heatmap_points(n: float, s: float, e: float, w: float) -> list:
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT lat, lng, radius_m FROM custom_river_areas "
+            "WHERE area_type='river' AND lat BETWEEN ? AND ? AND lng BETWEEN ? AND ?",
+            (s, n, w, e)
+        ).fetchall()
+    return [{"lat": r["lat"], "lng": r["lng"], "score": 0.7} for r in rows]
 
 def _overpass_fetch_osm(query: str, timeout: int = 28) -> dict:
     """Overpass API取得（kumi優先・フォールバック付き）。"""
