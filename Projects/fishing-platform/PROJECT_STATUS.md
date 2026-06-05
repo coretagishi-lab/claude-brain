@@ -4,7 +4,7 @@ current_status: active
 priority: medium
 due_date: ""
 review_waiting: false
-updated_at: 2026-06-05T21:00
+updated_at: 2026-06-05
 ---
 
 ## current_goal
@@ -66,7 +66,7 @@ updated_at: 2026-06-05T21:00
 - Nginx: ポート80リバースプロキシ → 8080
 
 ## next_action
-- http://133.88.117.175 で確認: 「🌡 ヒートマップ」で岸=赤橙・中央=青のサーモグラフィー風グラデーションが出るか → OKならPhase 5（課金・SEO・B2B）に進む
+- http://133.88.117.175 で「🌡 ヒートマップ」を目視確認: ピクセル検出で川・海・湖が青く塗られているか確認してOKならPhase 5（課金・SEO・B2B）に進む
 - 遊漁船の実DBデータ収集方法を決定してPhase 4を完了させる
 
 ## blocker

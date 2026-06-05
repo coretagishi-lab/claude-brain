@@ -1,12 +1,12 @@
 ---
 type: task
 status: idle
-checkpoint: 軽量化完了（SQLite川キャッシュ・GZip・SW v2）
-updated_at: 2026-06-04
+checkpoint: ヒートマップ: ピクセル検出方式（SW v7）
+updated_at: 2026-06-05
 ---
 
 ## checkpoint
-メモリ逼迫緊急対応完了。次はPhase 4の遊漁船DB本格化。
+CartoDB Darkタイルのピクセル色を読み取り水面(R<40,B>R,G<60)を検出してrgba(0,100,255,0.6)で塗る方式に変更完了。GeoJSON/Overpass依存をゼロにしてオフライン動作可能になった。
 
 ## checklist
 - [x] PROJECT_STATUS.md 作成
@@ -17,5 +17,7 @@ updated_at: 2026-06-04
 - [x] GZip圧縮配信
 - [x] SW v2（CDNキャッシュ強化）
 - [x] 釣具店・遊漁船: タップでポップアップ修正
+- [x] ヒートマップ橋下補完（waterway=river中心線ポリゴン二重レイヤー・SW v5）
+- [x] ヒートマップ: ピクセル検出方式（CartoDB Darkタイル直接解析・SW v7）
 - [ ] 遊漁船DB本格化（手数料5〜10%）
 - [ ] HTTPS化（Let's Encrypt）
