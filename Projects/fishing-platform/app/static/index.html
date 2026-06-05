@@ -474,8 +474,7 @@ let catchMarkers=[], tackleMarkers=[], boatMarkers=[], anglerMarkers=[];
 let heatLayer=null;
 let canvasHeatLayer=null;
 let riverPolygonLayers=[];
-let riverGeoData=null;          // kanto_rivers.geojson キャッシュ
-let riverCenterlineGeoData=null; // waterway=river 中心線キャッシュ (null | 'loading' | GeoJSON)
+let riverGeoData=null;
 let heatmapDebounceTimer=null;
 let activeModes=new Set(['catches']), currentPeriod='all', filterSpecies='';
 let selectedPrivacy='area', selectedSpeciesForPost=null;
@@ -800,12 +799,11 @@ function addCatchPin(c){
   catchMarkers.push(m);
 }
 
-// ── Heatmap: 川ポリゴン単色 + 橋下欠損補完 ─────────────────────
+// ── Heatmap: 川ポリゴン単色表示 ─────────────────────────────────
 async function renderHeatmap(silent=false){
   removeCanvasHeat();
   removeRiverPolygons();
   try{
-    // natural=water ポリゴン（ローカルgeojson）
     if(!riverGeoData){
       const res=await fetch('/data/kanto_rivers.geojson');
       riverGeoData=await res.json();
@@ -828,86 +826,12 @@ async function renderHeatmap(silent=false){
         return ft>=s&&fb<=n&&fr>=w&&fl<=e;
       })
     };
-    if(filtered.features.length){
-      const polyLayer=L.geoJSON(filtered,{
-        style:{fillColor:'#0064ff',fillOpacity:0.6,stroke:false}
-      }).addTo(map);
-      riverPolygonLayers.push(polyLayer);
-    }
-
-    // 橋下欠損補完（bridge=yes の区間を矩形ポリゴンで塗りつぶす）
-    if(riverCenterlineGeoData===null){
-      _loadBridgeGaps(s,w,n,e);
-    } else if(riverCenterlineGeoData!=='loading'){
-      _renderBridgePolygons(s,w,n,e);
-    }
-  }catch(e){console.error('heatmap:',e);}
-}
-
-function _renderBridgePolygons(s,w,n,e){
-  if(!riverCenterlineGeoData||riverCenterlineGeoData==='loading') return;
-  const bridges=riverCenterlineGeoData.features.filter(f=>{
-    const [fl,fb,fr,ft]=f._bbox;
-    return ft>=s&&fb<=n&&fr>=w&&fl<=e;
-  });
-  bridges.forEach(f=>{
-    const coords=f.geometry.coordinates;
-    if(coords.length<2) return;
-    const halfW=f.properties._width_deg||0.0001;
-    const poly=_bridgeRectPolygon(coords,halfW);
-    const layer=L.polygon(poly,{fillColor:'#0064ff',fillOpacity:0.6,stroke:false}).addTo(map);
+    if(!filtered.features.length) return;
+    const layer=L.geoJSON(filtered,{
+      style:{fillColor:'rgba(0,100,255,1)',fillOpacity:0.6,stroke:false}
+    }).addTo(map);
     riverPolygonLayers.push(layer);
-  });
-}
-
-function _bridgeRectPolygon(coords,halfWidth){
-  const [lon0,lat0]=coords[0];
-  const [lon1,lat1]=coords[coords.length-1];
-  const dx=lon1-lon0, dy=lat1-lat0;
-  const len=Math.sqrt(dx*dx+dy*dy)||1e-9;
-  const cosLat=Math.cos((lat0+lat1)/2*Math.PI/180);
-  const px=-dy/len*halfWidth;
-  const py= dx/len*halfWidth/cosLat;
-  return [
-    [lat0+py,lon0+px],[lat0-py,lon0-px],
-    [lat1-py,lon1-px],[lat1+py,lon1+px],
-  ];
-}
-
-async function _loadBridgeGaps(s,w,n,e){
-  riverCenterlineGeoData='loading';
-  try{
-    const bbox=`${s},${w},${n},${e}`;
-    const query=`[out:json][timeout:25];way["waterway"="river"]["bridge"="yes"](${bbox});out geom tags;`;
-    const data=await _overpassFetch(query);
-    if(data.elements&&data.elements.length){
-      const features=data.elements
-        .filter(el=>el.geometry&&el.geometry.length>=2)
-        .map(el=>{
-          const coords=el.geometry.map(p=>[p.lon,p.lat]);
-          const widthM=parseFloat(el.tags&&el.tags.width)||20;
-          const halfDeg=(widthM/111000)/2;
-          let minLat=90,maxLat=-90,minLng=180,maxLng=-180;
-          coords.forEach(c=>{
-            if(c[1]<minLat)minLat=c[1]; if(c[1]>maxLat)maxLat=c[1];
-            if(c[0]<minLng)minLng=c[0]; if(c[0]>maxLng)maxLng=c[0];
-          });
-          return {
-            type:'Feature',
-            geometry:{type:'LineString',coordinates:coords},
-            properties:{...(el.tags||{}),_width_deg:halfDeg},
-            _bbox:[minLng,minLat,maxLng,maxLat]
-          };
-        });
-      riverCenterlineGeoData={type:'FeatureCollection',features};
-    } else {
-      riverCenterlineGeoData={type:'FeatureCollection',features:[]};
-    }
-    if(activeModes.has('heatmap')) scheduleHeatmapRefresh();
-  }catch(e){
-    riverCenterlineGeoData=null;
-    console.error('bridges:',e);
-  }
+  }catch(e){console.error('heatmap:',e);}
 }
 
 function scheduleHeatmapRefresh(){

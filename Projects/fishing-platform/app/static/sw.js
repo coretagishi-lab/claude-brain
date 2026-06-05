@@ -1,4 +1,4 @@
-const CACHE = 'anglers-map-v6';
+const CACHE = 'anglers-map-v7';
 const PRECACHE = ['/', '/manifest.json'];
 
 self.addEventListener('install', e => {
