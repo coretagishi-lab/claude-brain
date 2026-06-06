@@ -1,4 +1,4 @@
-import os, shutil, uuid, io
+import os, shutil, uuid, io, secrets
 from pathlib import Path
 from typing import Optional
 from datetime import datetime, timedelta
@@ -7,6 +7,7 @@ import jwt
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import FileResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -244,7 +245,15 @@ def heatmap(
     species: Optional[str]   = None,
 ):
     if lat is not None and lng is not None:
-        return db.get_river_heatmap(lat, lng, zoom, n=n, s=s, e=e, w=w)
+        result = db.get_river_heatmap(lat, lng, zoom, n=n, s=s, e=e, w=w)
+        bn = n if n is not None else lat + 0.1
+        bs = s if s is not None else lat - 0.1
+        be = e if e is not None else lng + 0.15
+        bw = w if w is not None else lng - 0.15
+        custom_pts = db.get_custom_area_heatmap_points(bn, bs, be, bw)
+        if custom_pts:
+            result["points"].extend(custom_pts)
+        return result
     return db.get_heatmap_stats(period, species)
 
 @app.get("/api/stats")
@@ -319,6 +328,41 @@ def river_polygons(
     if any(v is None for v in [n, s, e, w]):
         return {"polygons": [], "count": 0, "status": "missing_bounds"}
     return db.get_water_polygon_data(s, n, w, e, zoom)
+
+# ── Admin ────────────────────────────────────────────────────
+ADMIN_PASSWORD    = os.environ.get("ADMIN_PASSWORD", "anglers-admin-2024")
+_admin_tokens: set = set()
+
+class AdminLoginBody(BaseModel):
+    password: str
+
+class AdminAreasBody(BaseModel):
+    areas: list
+
+def _require_admin(creds: HTTPAuthorizationCredentials = Depends(security)):
+    if not creds or creds.credentials not in _admin_tokens:
+        raise HTTPException(401, "管理者認証が必要です")
+
+@app.get("/admin")
+def admin_page():
+    return FileResponse(str(STATIC_DIR / "admin.html"))
+
+@app.post("/api/admin/auth")
+def admin_auth(body: AdminLoginBody):
+    if body.password != ADMIN_PASSWORD:
+        raise HTTPException(401, "パスワードが違います")
+    token = secrets.token_hex(32)
+    _admin_tokens.add(token)
+    return {"token": token}
+
+@app.get("/api/admin/areas")
+def admin_get_areas(_=Depends(_require_admin)):
+    return db.get_custom_areas()
+
+@app.post("/api/admin/areas")
+def admin_save_areas(body: AdminAreasBody, _=Depends(_require_admin)):
+    count = db.save_custom_areas(body.areas)
+    return {"saved": count}
 
 app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")

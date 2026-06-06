@@ -61,7 +61,7 @@ html,body{height:100%;background:var(--navy);color:var(--text);font-family:-appl
   border:1px solid rgba(0,201,177,0.2);font-size:0.72rem;color:var(--gray);cursor:pointer;transition:all .15s;white-space:nowrap}
 .mode-pill.active{background:rgba(0,201,177,0.18);border-color:var(--teal);color:var(--teal)}
 
-/* ── Row4: 魚種フィルター ── */
+/* ── Row3: 魚種フィルター ── */
 #species-row-wrap{position:fixed;left:0;right:0;z-index:9;top:128px;
   padding:0 12px;overflow-x:auto;scrollbar-width:none;transition:opacity .2s}
 #species-row-wrap::-webkit-scrollbar{display:none}
@@ -80,12 +80,8 @@ html,body{height:100%;background:var(--navy);color:var(--text);font-family:-appl
   display:flex;align-items:center;justify-content:center;transition:all .15s;right:16px;z-index:11}
 .map-btn:active,.map-btn.active{background:rgba(0,201,177,0.2);border-color:var(--teal);color:var(--teal)}
 .map-btn.fishing-on{background:rgba(255,34,68,0.2);border-color:var(--red);color:var(--red)}
-#ai-btn{bottom:260px}
 #fishing-btn{bottom:200px}
 #my-loc-btn{bottom:140px}
-#zoom-btns{position:fixed;right:70px;top:50%;transform:translateY(-50%);z-index:12;display:flex;flex-direction:column;gap:5px}
-.zbtn{width:44px;height:38px;border-radius:10px;border:none;background:rgba(0,0,0,0.60);backdrop-filter:blur(6px);color:#fff;font-size:0.68rem;font-weight:700;cursor:pointer;font-family:inherit;line-height:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px}
-.zbtn:active,.zbtn:focus{background:rgba(0,201,177,0.75);outline:none}
 
 /* ── TIDE CARD ── */
 #tide-card{position:fixed;bottom:80px;left:12px;z-index:10;
@@ -322,7 +318,7 @@ input[type=file]{display:none}
   <div class="mode-pill" data-mode="anglers">🎣 釣行中</div>
 </div>
 
-<!-- Row4: 魚種フィルター top:128px (期間フィルター削除) -->
+<!-- Row3: 魚種フィルター top:128px -->
 <div id="species-row-wrap">
   <div class="filter-row" id="species-row">
     <button class="fpill active" data-species="">全魚種</button>
@@ -339,15 +335,6 @@ input[type=file]{display:none}
 <div id="map-controls">
   <button class="map-btn" id="my-loc-btn" title="現在地">📍</button>
   <button class="map-btn" id="fishing-btn" title="釣行中ON/OFF">🎣</button>
-  <button class="map-btn" id="ai-btn" title="AI釣りポイント提案">🤖</button>
-</div>
-<!-- Zoom buttons (5 levels) right:70px, vertical center -->
-<div id="zoom-btns">
-  <button class="zbtn" data-zoom="8"  title="関東全域 z8" ><span style="font-size:1rem">🗾</span></button>
-  <button class="zbtn" data-zoom="10" title="広域 z10"    ><span>z10</span></button>
-  <button class="zbtn" data-zoom="13" title="標準 z13"    ><span>z13</span></button>
-  <button class="zbtn" data-zoom="15" title="詳細 z15"    ><span>z15</span></button>
-  <button class="zbtn" data-zoom="17" title="最大 z17"    ><span>z17</span></button>
 </div>
 
 <!-- Tide card -->
@@ -474,7 +461,7 @@ let catchMarkers=[], tackleMarkers=[], boatMarkers=[], anglerMarkers=[];
 let heatLayer=null;
 let canvasHeatLayer=null;
 let riverPolygonLayers=[];
-let riverGeoData=null;
+let riverGeoData=null;   // kanto_rivers.geojson キャッシュ
 let heatmapDebounceTimer=null;
 let activeModes=new Set(['catches']), currentPeriod='all', filterSpecies='';
 let selectedPrivacy='area', selectedSpeciesForPost=null;
@@ -484,7 +471,20 @@ let isFishing=false;
 let roomMap=null, roomMarkers=[];
 let currentRoom=null;
 
-// boats は /data/boats.json から動的ロード（renderBoats参照）
+// ── Boats data (HP実在確認済みのみ 2026-06-04 Web検索) ──────────────
+const BOATS_DATA=[
+  // 金沢八景港
+  {shipName:"忠彦丸",    port:"金沢八景",lat:35.3440,lng:139.6370,target:"アジ・タコ・ヒラメ・カサゴ",price:"¥7,500〜",cap:15,hp:"https://tadahikomaru.com/",        types:["遊漁船"]},
+  {shipName:"一之瀬丸",  port:"金沢八景",lat:35.3450,lng:139.6380,target:"タチウオ・マダイ・アジ",   price:"¥6,500〜",cap:12,hp:"https://www.ichinosemaru.net/",      types:["遊漁船"]},
+  // 久里浜港
+  {shipName:"黒川本家",  port:"久里浜",  lat:35.2170,lng:139.7140,target:"タチウオ・アジ・マダイ・ワラサ",price:"¥10,000〜",cap:12,hp:"https://kurokawa-maru.com/",  types:["遊漁船"]},
+  {shipName:"鈴福丸",    port:"久里浜",  lat:35.2165,lng:139.7135,target:"アジ・シロギス・ライト五目",price:"¥8,000〜",cap:10,hp:"https://www.suzufukumaru.com/",     types:["遊漁船"]},
+  // 茅ヶ崎港
+  {shipName:"一俊丸",    port:"茅ヶ崎",  lat:35.3200,lng:139.4020,target:"カツオ・ブリ・シイラ・マグロ",price:"¥14,000〜",cap:12,hp:"http://kazutoshimaru.net/",      types:["遊漁船","沖磯"]},
+  {shipName:"沖右ヱ門丸",port:"茅ヶ崎",  lat:35.3205,lng:139.4025,target:"アジ・マダイ・カサゴ",    price:"¥10,000〜",cap:10,hp:"https://www.okiemonmaru.com/",        types:["遊漁船"]},
+  // 平塚港
+  {shipName:"庄三郎丸",  port:"平塚",    lat:35.3280,lng:139.3560,target:"ルアーシイラ・ヒラメ・タチウオ",price:"¥11,000〜",cap:10,hp:"https://www.shouzaburo.com/", types:["遊漁船"]},
+];
 
 // ── Auth ─────────────────────────────────────────────────────
 function loadAuth(){
@@ -585,83 +585,26 @@ function removeCanvasHeat(){
 }
 
 function scoreToRgb(score){
-  // サーモグラフィー配色（0-15:透明 → 青 → 緑 → 黄 → 橙 → 赤）
   const t=Math.max(0,Math.min(1,score));
-  if(t<0.15) return [0,0,0,0];
-  // キーポイント: [score, [r,g,b,a]]
-  const kp=[
-    [0.15,[  0,  0,180,  0]],  // 0.15: 深青(透明)
-    [0.30,[  0,  0,180,128]],  // 0.30: 深青
-    [0.45,[  0,150,255,153]],  // 0.45: 水色
-    [0.55,[  0,230,100,166]],  // 0.55: 緑
-    [0.65,[150,255,  0,179]],  // 0.65: 黄緑
-    [0.75,[255,220,  0,191]],  // 0.75: 黄
-    [0.85,[255,120,  0,204]],  // 0.85: 橙
-    [1.00,[255, 20,  0,217]],  // 1.00: 赤
+  // 青(低)→シアン→緑→琥珀→橙→赤(高)  α: 0.70→0.90
+  const stops=[
+    [0,  100,255,178],  // 0.0 blue   α=0.70
+    [0,  210,255,188],  // 0.2 cyan   α=0.74
+    [60, 220, 60,198],  // 0.4 green  α=0.78
+    [255,200,  0,212],  // 0.6 amber  α=0.83
+    [255, 80,  0,222],  // 0.8 orange α=0.87
+    [255, 30, 30,230],  // 1.0 red    α=0.90
   ];
-  for(let i=0;i<kp.length-1;i++){
-    const [t0,c0]=kp[i],[t1,c1]=kp[i+1];
-    if(t>=t0&&t<=t1){
-      const f=(t-t0)/(t1-t0);
-      return [
-        Math.round(c0[0]+(c1[0]-c0[0])*f),
-        Math.round(c0[1]+(c1[1]-c0[1])*f),
-        Math.round(c0[2]+(c1[2]-c0[2])*f),
-        Math.round(c0[3]+(c1[3]-c0[3])*f),
-      ];
-    }
-  }
-  return kp[kp.length-1][1];
-}
-
-function scoreToColor5(score){
-  if(score<=20) return null;
-  if(score<=40) return 'rgba(0,100,255,0.6)';
-  if(score<=60) return 'rgba(0,230,100,0.7)';
-  if(score<=80) return 'rgba(255,200,0,0.8)';
-  return 'rgba(255,0,0,0.9)';
-}
-
-function createGridHeatmap(map,points,cellSizeM){
-  const pane=map.getPanes().overlayPane;
-  const canvas=document.createElement('canvas');
-  canvas.style.cssText='position:absolute;top:0;left:0;pointer-events:none;z-index:300;opacity:0;transition:opacity 0.5s';
-  pane.appendChild(canvas);
-
-  function redraw(){
-    const size=map.getSize();
-    canvas.width=size.x;
-    canvas.height=size.y;
-    const topLeft=map.containerPointToLayerPoint([0,0]);
-    L.DomUtil.setPosition(canvas,topLeft);
-    const ctx=canvas.getContext('2d');
-    ctx.clearRect(0,0,size.x,size.y);
-    if(!points.length){canvas.style.opacity='1.0';return;}
-
-    // セルサイズをピクセルに変換（代表点で計算）
-    const p0=points[Math.floor(points.length/2)];
-    const cos_lat=Math.cos(p0.lat*Math.PI/180);
-    const dlat=cellSizeM/111000;
-    const dlng=cellSizeM/(111000*cos_lat);
-    const pt0=map.latLngToContainerPoint(L.latLng(p0.lat,p0.lng));
-    const pt1=map.latLngToContainerPoint(L.latLng(p0.lat+dlat,p0.lng+dlng));
-    const cellW=Math.max(2,Math.abs(pt1.x-pt0.x)+1);
-    const cellH=Math.max(2,Math.abs(pt1.y-pt0.y)+1);
-
-    points.forEach(({lat,lng,score})=>{
-      const color=scoreToColor5(score);
-      if(!color) return;
-      const pt=map.latLngToContainerPoint(L.latLng(lat,lng));
-      if(pt.x<-cellW||pt.x>size.x+cellW||pt.y<-cellH||pt.y>size.y+cellH) return;
-      ctx.fillStyle=color;
-      ctx.fillRect(pt.x-cellW/2,pt.y-cellH/2,cellW,cellH);
-    });
-    canvas.style.opacity='1.0';
-  }
-
-  redraw();
-  map.on('moveend zoomend',redraw);
-  return {remove(){canvas.remove();map.off('moveend zoomend',redraw);}};
+  const n=stops.length-1;
+  const i=Math.min(Math.floor(t*n),n-1);
+  const f=t*n-i;
+  const c0=stops[i],c1=stops[i+1];
+  return [
+    Math.round(c0[0]+(c1[0]-c0[0])*f),
+    Math.round(c0[1]+(c1[1]-c0[1])*f),
+    Math.round(c0[2]+(c1[2]-c0[2])*f),
+    Math.round(c0[3]+(c1[3]-c0[3])*f),
+  ];
 }
 
 function createCanvasHeatmap(map,points,opts){
@@ -679,6 +622,7 @@ function createCanvasHeatmap(map,points,opts){
     const ctx=canvas.getContext('2d');
     ctx.clearRect(0,0,size.x,size.y);
     const zoom=map.getZoom();
+    // opts.radiusFn があれば使用（河川モード: 細い線）、なければデフォルト
     const radius=opts&&opts.radiusFn?opts.radiusFn(zoom):Math.max(30,Math.min(80,zoom*5.5-20));
     points.forEach(({lat,lng,score})=>{
       try{
@@ -697,36 +641,12 @@ function createCanvasHeatmap(map,points,opts){
         ctx.fill();
       }catch(e){}
     });
-    canvas.style.opacity='1.0';
+    canvas.style.opacity='0.92';
   }
 
   redraw();
   map.on('moveend zoomend',redraw);
   return {remove(){canvas.remove();map.off('moveend zoomend',redraw);}};
-}
-
-// ── Opening hours 日本語化 ─────────────────────────────────────
-function _fmtHours(h){
-  if(!h) return '営業時間不明';
-  return h
-    .replace(/\bMo\b/g,'月').replace(/\bTu\b/g,'火').replace(/\bWe\b/g,'水')
-    .replace(/\bTh\b/g,'木').replace(/\bFr\b/g,'金').replace(/\bSa\b/g,'土')
-    .replace(/\bSu\b/g,'日').replace(/\boff\b/g,'休').replace(/\bPH\b/g,'祝')
-    .replace(/\bopen\b/g,'営業中').replace(/\bclosed\b/g,'閉');
-}
-
-// ── Overpass query (fallback server付き) ──────────────────────
-async function _overpassFetch(query){
-  for(const base of ['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter']){
-    try{
-      const ctrl=new AbortController();
-      const tid=setTimeout(()=>ctrl.abort(),18000);
-      const r=await fetch(`${base}?data=${encodeURIComponent(query)}`,{signal:ctrl.signal});
-      clearTimeout(tid);
-      if(r.ok) return await r.json();
-    }catch(e){}
-  }
-  return {elements:[]};
 }
 
 // ── Clear layers ──────────────────────────────────────────────
@@ -799,51 +719,30 @@ function addCatchPin(c){
   catchMarkers.push(m);
 }
 
-// ── Heatmap: 川ポリゴン単色表示 ─────────────────────────────────
-async function renderHeatmap(silent=false){
+// ── Heatmap: river-tiles オーバーレイ ────────────────────────────
+async function renderHeatmap(){
   removeCanvasHeat();
   removeRiverPolygons();
-  try{
-    if(!riverGeoData){
-      const res=await fetch('/data/kanto_rivers.geojson');
-      riverGeoData=await res.json();
-      riverGeoData.features.forEach(f=>{
-        const cs=f.geometry.coordinates[0];
-        let minLat=90,maxLat=-90,minLng=180,maxLng=-180;
-        cs.forEach(c=>{
-          if(c[1]<minLat)minLat=c[1]; if(c[1]>maxLat)maxLat=c[1];
-          if(c[0]<minLng)minLng=c[0]; if(c[0]>maxLng)maxLng=c[0];
-        });
-        f._bbox=[minLng,minLat,maxLng,maxLat];
-      });
-    }
-    const b=map.getBounds();
-    const s=b.getSouth(),n=b.getNorth(),w=b.getWest(),e=b.getEast();
-    const filtered={
-      type:'FeatureCollection',
-      features:riverGeoData.features.filter(f=>{
-        const [fl,fb,fr,ft]=f._bbox;
-        return ft>=s&&fb<=n&&fr>=w&&fl<=e;
-      })
-    };
-    if(!filtered.features.length) return;
-    const layer=L.geoJSON(filtered,{
-      style:{fillColor:'rgba(0,100,255,1)',fillOpacity:0.6,stroke:false}
-    }).addTo(map);
-    riverPolygonLayers.push(layer);
-  }catch(e){console.error('heatmap:',e);}
+  const layer=L.tileLayer('/river-tiles/{z}/{x}/{y}.png',{
+    opacity:0.8,
+    maxNativeZoom:17,
+    maxZoom:19,
+    minZoom:13,
+  }).addTo(map);
+  riverPolygonLayers.push(layer);
+  showToast('🌡 川タイルマップ表示中');
 }
 
 function scheduleHeatmapRefresh(){
   clearTimeout(heatmapDebounceTimer);
   heatmapDebounceTimer=setTimeout(()=>{
-    if(activeModes.has('heatmap')) renderHeatmap(true); // silent: ptトースト非表示
+    if(activeModes.has('heatmap')) renderHeatmap();
   },700);
 }
 
 // ── Tackle shops (静的JSONから即座表示) ──────────────────────────
 async function loadTackleShops(){
-  if(tackleMarkers.length>0) return; // already loaded
+  if(tackleMarkers.length>0) return;
   try{
     const shops=await fetch('/data/tackle_shops.json').then(r=>r.json());
     shops.forEach(shop=>{
@@ -865,30 +764,28 @@ async function loadTackleShops(){
   }catch(e){console.error(e);showToast('釣具店データ取得失敗','error');}
 }
 
-// ── Fishing boats (静的JSONから即座表示) ──────────────────────────
-async function renderBoats(){
-  if(boatMarkers.length>0) return; // already loaded
-  try{
-    const boats=await fetch('/data/boats.json').then(r=>r.json());
-    boats.filter(b=>b.hp).forEach(boat=>{
-      const icon=L.divIcon({className:'',html:`<div class="glow-dot"></div>`,iconSize:[12,12],iconAnchor:[6,6]});
-      const m=L.marker([boat.lat,boat.lng],{icon}).addTo(map);
-      const typeLabel=(boat.types||['遊漁船']).join('・');
-      m.bindPopup(`<div style="min-width:190px">
-        <div style="font-weight:700;font-size:0.95rem;margin-bottom:4px;color:var(--white)">⛵ ${boat.shipName}</div>
-        <div style="font-size:0.68rem;color:var(--teal);margin-bottom:8px">${typeLabel} — ${boat.port}</div>
-        <div style="font-size:0.75rem;color:var(--gray);line-height:1.9;margin-bottom:8px">
-          🎣 ${boat.target}<br>💴 ${boat.price}<br>👥 定員 ${boat.cap}名
-        </div>
-        <div style="display:flex;gap:6px">
-          <a href="${boat.hp}" target="_blank" style="flex:1;display:flex;align-items:center;justify-content:center;gap:3px;padding:7px;border-radius:6px;text-decoration:none;font-size:0.7rem;font-weight:700;background:rgba(255,34,68,0.18);color:#ff4466">🌐 HP・予約</a>
-          <a href="https://www.google.com/maps/search/${encodeURIComponent(boat.shipName+' '+boat.port)}/@${boat.lat},${boat.lng},15z" target="_blank" style="flex:1;display:flex;align-items:center;justify-content:center;gap:3px;padding:7px;border-radius:6px;text-decoration:none;font-size:0.7rem;font-weight:700;background:rgba(26,115,232,0.18);color:#4f9eff">🗺 マップ</a>
-        </div>
-      </div>`);
-      boatMarkers.push(m);
-    });
-    showToast(`遊漁船 ${boatMarkers.length}隻`);
-  }catch(e){console.error(e);}
+// ── Fishing boats (red glow dots) ─ HPあり限定 ───────────────
+function renderBoats(){
+  const withHp=BOATS_DATA.filter(b=>b.hp);
+  withHp.forEach(boat=>{
+    const icon=L.divIcon({className:'',html:`<div class="glow-dot"></div>`,iconSize:[12,12],iconAnchor:[6,6]});
+    const m=L.marker([boat.lat,boat.lng],{icon}).addTo(map);
+    const typeLabel=(boat.types||['遊漁船']).join('・');
+    
+    m.bindPopup(`<div style="min-width:190px">
+      <div style="font-weight:700;font-size:0.95rem;margin-bottom:4px;color:var(--white)">⛵ ${boat.shipName}</div>
+      <div style="font-size:0.68rem;color:var(--teal);margin-bottom:8px">${typeLabel} — ${boat.port}</div>
+      <div style="font-size:0.75rem;color:var(--gray);line-height:1.9;margin-bottom:8px">
+        🎣 ${boat.target}<br>💴 ${boat.price}<br>👥 定員 ${boat.cap}名
+      </div>
+      <div style="display:flex;gap:6px">
+        <a href="${boat.hp}" target="_blank" style="flex:1;display:flex;align-items:center;justify-content:center;gap:3px;padding:7px;border-radius:6px;text-decoration:none;font-size:0.7rem;font-weight:700;background:rgba(255,34,68,0.18);color:#ff4466">🌐 HP・予約</a>
+        <a href="https://www.google.com/maps/search/${encodeURIComponent(boat.shipName+' '+boat.port)}/@${boat.lat},${boat.lng},15z" target="_blank" style="flex:1;display:flex;align-items:center;justify-content:center;gap:3px;padding:7px;border-radius:6px;text-decoration:none;font-size:0.7rem;font-weight:700;background:rgba(26,115,232,0.18);color:#4f9eff">🗺 マップ</a>
+      </div>
+    </div>`);
+    boatMarkers.push(m);
+  });
+  showToast(`遊漁船 ${boatMarkers.length}隻（HP確認済み）`);
 }
 
 // ── Fishing anglers nearby ────────────────────────────────────
@@ -1227,8 +1124,7 @@ document.querySelectorAll('.mode-pill').forEach(p=>p.addEventListener('click',()
     else if(mode==='boats') renderBoats();
     else if(mode==='anglers') loadFishingAnglers();
   }
-  const showSpecies=activeModes.has('catches');
-  document.getElementById('species-row-wrap')?.classList.toggle('hidden',!showSpecies);
+  document.getElementById('species-row-wrap')?.classList.toggle('hidden',!activeModes.has('catches'));
 }));
 
 // Nav
@@ -1245,16 +1141,10 @@ document.querySelectorAll('.stab').forEach(s=>s.addEventListener('click',()=>loa
 
 // Map buttons
 document.getElementById('my-loc-btn').addEventListener('click',()=>{ if(myLat)map.setView([myLat,myLng],15);else getMyLocation(); });
-document.getElementById('ai-btn').addEventListener('click',openAiSheet);
 document.getElementById('fab').addEventListener('click',openSheet);
 document.getElementById('sheet-overlay').addEventListener('click',closeAllSheets);
 document.getElementById('tide-card').addEventListener('click',openAiSheet);
 document.getElementById('profile-btn').addEventListener('click',openProfileSheet);
-
-// Zoom buttons (5 levels, instant no animation)
-document.querySelectorAll('.zbtn').forEach(btn=>btn.addEventListener('click',()=>{
-  map.setZoom(parseInt(btn.dataset.zoom),{animate:false});
-}));
 
 // Fishing status toggle
 document.getElementById('fishing-btn').addEventListener('click',async()=>{
@@ -1352,7 +1242,6 @@ const _DEV_ELS=[
   {id:'fab',             label:'#fab',               dir:'br'},
   {id:'my-loc-btn',      label:'#my-loc-btn',        dir:'br'},
   {id:'fishing-btn',     label:'#fishing-btn',       dir:'br'},
-  {id:'ai-btn',          label:'#ai-btn',            dir:'br'},
 ];
 function toggleDevMode(){
   devMode=!devMode;
