@@ -364,5 +364,63 @@ def admin_save_areas(body: AdminAreasBody, _=Depends(_require_admin)):
     count = db.save_custom_areas(body.areas)
     return {"saved": count}
 
+# ── River tiles (on-demand generation) ───────────────────────────────────────
+_RIVER_TILES_DIR = STATIC_DIR / "river-tiles"
+
+def _generate_river_tile_ondemand(z: int, x: int, y: int):
+    import requests as _req, io, time
+    import numpy as np
+    from PIL import Image, ImageFilter
+    from scipy import ndimage
+
+    try:
+        url = f"https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"
+        headers = {"User-Agent": "Mozilla/5.0"}
+        for attempt in range(3):
+            r = _req.get(url, headers=headers, timeout=15)
+            if r.status_code == 200:
+                break
+            time.sleep(0.3 * (attempt + 1))
+        else:
+            return None
+
+        arr = np.array(Image.open(io.BytesIO(r.content)).convert("RGB"))
+        lo, hi = 28, 48
+        mask = (
+            (arr[:, :, 0] >= lo) & (arr[:, :, 0] <= hi) &
+            (arr[:, :, 1] >= lo) & (arr[:, :, 1] <= hi) &
+            (arr[:, :, 2] >= lo) & (arr[:, :, 2] <= hi)
+        )
+        labeled, n = ndimage.label(mask)
+        if n > 0:
+            sizes = ndimage.sum(mask, labeled, range(1, n + 1))
+            keep = np.zeros(n + 1, dtype=bool)
+            keep[1:] = np.array(sizes) >= 500
+            mask = keep[labeled]
+
+        rgba = np.zeros((256, 256, 4), dtype=np.uint8)
+        rgba[mask] = (0, 120, 255, 180)
+        return Image.fromarray(rgba, "RGBA").filter(ImageFilter.GaussianBlur(radius=1))
+    except Exception:
+        return None
+
+
+@app.get("/river-tiles/{z}/{x}/{y}.png")
+def river_tile(z: int, x: int, y: int):
+    tile_path = _RIVER_TILES_DIR / str(z) / str(x) / f"{y}.png"
+    if tile_path.exists():
+        return FileResponse(str(tile_path), media_type="image/png",
+                            headers={"Cache-Control": "public, max-age=86400"})
+
+    tile_path.parent.mkdir(parents=True, exist_ok=True)
+    tile = _generate_river_tile_ondemand(z, x, y)
+    if tile is None:
+        Image.new("RGBA", (256, 256), (0, 0, 0, 0)).save(str(tile_path), "PNG")
+    else:
+        tile.save(str(tile_path), "PNG", optimize=True)
+    return FileResponse(str(tile_path), media_type="image/png",
+                        headers={"Cache-Control": "public, max-age=86400"})
+
+
 app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")
