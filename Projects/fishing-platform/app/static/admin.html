@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>管理画面 — Angler's Map</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a1628;color:#c8dff0;font-family:-apple-system,'Noto Sans JP',sans-serif;height:100vh;overflow:hidden}
+
+#login-screen{
+  position:fixed;inset:0;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:16px;z-index:200;background:#0a1628
+}
+#login-screen h1{font-size:1.4rem;color:#00c9b1;letter-spacing:1px}
+#pw-input{
+  width:260px;padding:11px 14px;border-radius:8px;
+  border:1px solid rgba(0,201,177,0.4);background:rgba(255,255,255,0.05);
+  color:#f0f8ff;font-size:1rem;outline:none
+}
+#pw-input:focus{border-color:#00c9b1}
+#login-btn{
+  width:260px;padding:11px;border-radius:8px;border:none;
+  background:#00c9b1;color:#0a1628;font-size:1rem;font-weight:700;cursor:pointer
+}
+#login-btn:hover{background:#00a896}
+#login-error{color:#ff2244;font-size:0.85rem;min-height:1.2em}
+
+#map{position:fixed;top:52px;left:0;right:0;bottom:0;z-index:1}
+.leaflet-container{background:#0d0d1a}
+
+#toolbar{
+  position:fixed;top:0;left:0;right:0;height:52px;z-index:10;
+  background:rgba(10,22,40,0.97);backdrop-filter:blur(8px);
+  border-bottom:1px solid rgba(0,201,177,0.2);
+  padding:0 12px;display:flex;align-items:center;gap:8px
+}
+.tool-btn{
+  padding:5px 11px;border-radius:6px;border:1px solid rgba(0,201,177,0.3);
+  background:rgba(255,255,255,0.05);color:#c8dff0;font-size:0.78rem;cursor:pointer;
+  white-space:nowrap;transition:all 0.15s
+}
+.tool-btn:hover{border-color:#00c9b1;color:#00c9b1}
+.tool-btn.active{background:rgba(0,201,177,0.18);border-color:#00c9b1;color:#00c9b1}
+.tool-btn.ban-active{background:rgba(255,34,68,0.18);border-color:#ff2244;color:#ff2244}
+
+.sep{width:1px;height:22px;background:rgba(255,255,255,0.12);flex-shrink:0}
+#brush-size-wrap{display:flex;align-items:center;gap:6px;font-size:0.72rem;color:#8aa4c0}
+#brush-size{width:72px;accent-color:#00c9b1;cursor:pointer}
+
+#save-btn{
+  padding:5px 14px;border-radius:6px;border:none;
+  background:#00c9b1;color:#0a1628;font-size:0.78rem;font-weight:700;cursor:pointer
+}
+#save-btn:hover{background:#00a896}
+#save-btn:disabled{opacity:0.5;cursor:default}
+#clear-btn{
+  padding:5px 11px;border-radius:6px;
+  border:1px solid rgba(255,34,68,0.4);background:rgba(255,34,68,0.1);
+  color:#ff2244;font-size:0.78rem;cursor:pointer
+}
+#status-wrap{margin-left:auto;font-size:0.72rem;color:#8aa4c0;white-space:nowrap}
+
+body.brush-mode,body.ban-mode{cursor:crosshair}
+</style>
+</head>
+<body>
+
+<div id="login-screen">
+  <h1>🎣 管理画面</h1>
+  <input type="password" id="pw-input" placeholder="パスワードを入力" autocomplete="current-password">
+  <button id="login-btn">ログイン</button>
+  <span id="login-error"></span>
+</div>
+
+<div id="admin-app" style="display:none">
+  <div id="map"></div>
+  <div id="toolbar">
+    <button class="tool-btn active" id="tool-pan" title="P">🖐 Pan</button>
+    <button class="tool-btn" id="tool-brush" title="B">🖌 ブラシ</button>
+    <button class="tool-btn" id="tool-ban" title="X">🚫 釣禁</button>
+    <button class="tool-btn" id="tool-erase" title="E">🧹 消しゴム</button>
+    <div class="sep"></div>
+    <button class="tool-btn active" id="tool-river" title="R">🌊 川表示</button>
+    <div class="sep"></div>
+    <div id="brush-size-wrap">
+      半径 <span id="brush-size-val">80</span>m
+      <input type="range" id="brush-size" min="20" max="300" value="80" step="10">
+    </div>
+    <div class="sep"></div>
+    <button id="save-btn">💾 保存</button>
+    <button id="clear-btn">🗑 全消去</button>
+    <div id="status-wrap"><span id="status-msg">エリア: <b id="area-count">0</b>件</span></div>
+  </div>
+</div>
+
+<script>
+'use strict';
+let token = null, map = null;
+let riverLayerGroup = null, riverVisible = true, riverLoadTimer = null;
+let currentTool = 'pan';
+let isPainting = false;
+let lastPaintLat = null, lastPaintLng = null;
+const circles = new Map();
+let nextId = 1;
+
+// ── Login ─────────────────────────────────────────────────────
+document.getElementById('pw-input').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+document.getElementById('login-btn').addEventListener('click', doLogin);
+
+async function doLogin() {
+  const pw = document.getElementById('pw-input').value.trim();
+  const errEl = document.getElementById('login-error');
+  errEl.textContent = '';
+  if (!pw) return;
+  try {
+    const res = await fetch('/api/admin/auth', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({password: pw})
+    });
+    if (!res.ok) { errEl.textContent = 'パスワードが違います'; return; }
+    const d = await res.json();
+    token = d.token;
+    document.getElementById('login-screen').style.display = 'none';
+    document.getElementById('admin-app').style.display = '';
+    initMap();
+  } catch { errEl.textContent = '接続エラー'; }
+}
+
+// ── Map ───────────────────────────────────────────────────────
+function initMap() {
+  map = L.map('map', {center: [35.68, 139.69], zoom: 13, zoomControl: true});
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution: '© OpenStreetMap © CartoDB',
+    subdomains: 'abcd', maxZoom: 19
+  }).addTo(map);
+
+  riverLayerGroup = L.layerGroup().addTo(map);
+  loadRiverPolygons();
+  loadAreas();
+
+  map.on('moveend', scheduleRiverLoad);
+  map.on('zoomend', scheduleRiverLoad);
+
+  map.on('mousedown', e => {
+    if (currentTool !== 'brush' && currentTool !== 'ban') return;
+    isPainting = true;
+    lastPaintLat = null;
+    lastPaintLng = null;
+    paintAt(e.latlng.lat, e.latlng.lng);
+    L.DomEvent.stopPropagation(e);
+  });
+
+  map.on('mousemove', e => {
+    if (!isPainting) return;
+    const {lat, lng} = e.latlng;
+    if (lastPaintLat !== null) {
+      const r = getBrushRadius();
+      const dlat = (lat - lastPaintLat) * 111000;
+      const dlng = (lng - lastPaintLng) * 111000 * Math.cos(lat * Math.PI / 180);
+      if (Math.sqrt(dlat*dlat + dlng*dlng) < r * 0.75) return;
+    }
+    paintAt(lat, lng);
+  });
+
+  map.on('mouseup', () => { isPainting = false; });
+
+  // Touch support
+  const mapEl = map.getContainer();
+  mapEl.addEventListener('touchstart', e => {
+    if (currentTool !== 'brush' && currentTool !== 'ban') return;
+    e.preventDefault();
+    isPainting = true;
+    lastPaintLat = null; lastPaintLng = null;
+    const t = e.touches[0];
+    const ll = map.containerPointToLatLng(L.point(t.clientX, t.clientY));
+    paintAt(ll.lat, ll.lng);
+  }, {passive: false});
+
+  mapEl.addEventListener('touchmove', e => {
+    if (!isPainting) return;
+    e.preventDefault();
+    const t = e.touches[0];
+    const ll = map.containerPointToLatLng(L.point(t.clientX, t.clientY));
+    const r = getBrushRadius();
+    if (lastPaintLat !== null) {
+      const dlat = (ll.lat - lastPaintLat) * 111000;
+      const dlng = (ll.lng - lastPaintLng) * 111000 * Math.cos(ll.lat * Math.PI / 180);
+      if (Math.sqrt(dlat*dlat + dlng*dlng) < r * 0.75) return;
+    }
+    paintAt(ll.lat, ll.lng);
+  }, {passive: false});
+
+  mapEl.addEventListener('touchend', () => { isPainting = false; });
+  window.addEventListener('mouseup', () => { isPainting = false; });
+}
+
+
+// ── River polygons ────────────────────────────────────────────
+function clearRiverLayers() {
+  if (riverLayerGroup) riverLayerGroup.clearLayers();
+}
+
+async function loadRiverPolygons() {
+  if (!riverVisible || !map) return;
+  const b = map.getBounds();
+  const zoom = map.getZoom();
+  const params = new URLSearchParams({
+    s: b.getSouth().toFixed(5),
+    n: b.getNorth().toFixed(5),
+    w: b.getWest().toFixed(5),
+    e: b.getEast().toFixed(5),
+    zoom
+  });
+  try {
+    const res = await fetch('/api/river-polygons?' + params);
+    if (!res.ok) return;
+    const d = await res.json();
+    clearRiverLayers();
+    if (d.status === 'no_data' || d.count === 0) {
+      await loadRiverGeoJSON();
+      return;
+    }
+    const features = d.polygons.map(p => ({
+      type: 'Feature',
+      geometry: {
+        type: 'Polygon',
+        coordinates: [p.coords.map(([lat, lng]) => [lng, lat])]
+      },
+      properties: {name: p.name, width_m: p.width_m}
+    }));
+    L.geoJSON({type: 'FeatureCollection', features}, {
+      style: {
+        color: '#1e90ff', fillColor: '#1e90ff',
+        fillOpacity: 0.5, weight: 3, opacity: 0.9
+      },
+      interactive: false
+    }).addTo(riverLayerGroup);
+    setStatus('🌊 川 ' + d.count + '件表示中');
+  } catch { }
+}
+
+async function loadRiverGeoJSON() {
+  try {
+    const res = await fetch('/data/kanto_rivers.geojson');
+    if (!res.ok) return;
+    const gj = await res.json();
+    L.geoJSON(gj, {
+      style: { color: '#1e90ff', fillColor: '#1e90ff', fillOpacity: 0.5, weight: 3, opacity: 0.9 },
+      interactive: false
+    }).addTo(riverLayerGroup);
+    setStatus('🌊 川データ(GeoJSON)表示中');
+  } catch { }
+}
+
+function scheduleRiverLoad() {
+  clearTimeout(riverLoadTimer);
+  riverLoadTimer = setTimeout(loadRiverPolygons, 500);
+}
+
+function toggleRiverLayer() {
+  riverVisible = !riverVisible;
+  const btn = document.getElementById('tool-river');
+  if (riverVisible) {
+    btn.classList.add('active');
+    loadRiverPolygons();
+  } else {
+    clearRiverLayers();
+    btn.classList.remove('active');
+  }
+}
+
+// ── Paint ─────────────────────────────────────────────────────
+function getBrushRadius() {
+  return parseInt(document.getElementById('brush-size').value, 10);
+}
+
+function paintAt(lat, lng) {
+  const r = getBrushRadius();
+  const type = currentTool === 'ban' ? 'banned' : 'river';
+  const color = type === 'banned' ? '#ff2244' : '#3388ff';
+  const id = nextId++;
+
+  const circle = L.circle([lat, lng], {
+    radius: r, color, fillColor: color,
+    fillOpacity: 0.35, weight: 1, opacity: 0.7
+  }).addTo(map);
+
+  circle.on('click', () => {
+    if (currentTool !== 'erase') return;
+    map.removeLayer(circle);
+    circles.delete(id);
+    updateCount();
+  });
+
+  circles.set(id, {circle, data: {lat, lng, radius_m: r, area_type: type}});
+  lastPaintLat = lat;
+  lastPaintLng = lng;
+  updateCount();
+}
+
+// ── Tools ─────────────────────────────────────────────────────
+function setTool(t) {
+  currentTool = t;
+  isPainting = false;
+  lastPaintLat = null; lastPaintLng = null;
+
+  document.querySelectorAll('.tool-btn:not(#tool-river)').forEach(b => b.classList.remove('active','ban-active'));
+  if (t === 'ban') {
+    document.getElementById('tool-ban').classList.add('ban-active');
+  } else {
+    document.getElementById(`tool-${t}`).classList.add('active');
+  }
+
+  document.body.classList.remove('brush-mode','ban-mode');
+  if (t === 'brush') {
+    map.dragging.disable();
+    document.body.classList.add('brush-mode');
+  } else if (t === 'ban') {
+    map.dragging.disable();
+    document.body.classList.add('ban-mode');
+  } else {
+    map.dragging.enable();
+  }
+}
+
+document.getElementById('tool-pan').addEventListener('click', () => setTool('pan'));
+document.getElementById('tool-brush').addEventListener('click', () => setTool('brush'));
+document.getElementById('tool-ban').addEventListener('click', () => setTool('ban'));
+document.getElementById('tool-erase').addEventListener('click', () => setTool('erase'));
+document.getElementById('tool-river').addEventListener('click', toggleRiverLayer);
+
+document.getElementById('brush-size').addEventListener('input', e => {
+  document.getElementById('brush-size-val').textContent = e.target.value;
+});
+
+document.addEventListener('keydown', e => {
+  if (!map || e.target.tagName === 'INPUT') return;
+  const k = e.key.toLowerCase();
+  if (k === 'p') setTool('pan');
+  else if (k === 'b') setTool('brush');
+  else if (k === 'x') setTool('ban');
+  else if (k === 'e') setTool('erase');
+  else if (k === 'r') toggleRiverLayer();
+});
+
+// ── Count / Status ────────────────────────────────────────────
+function updateCount() {
+  document.getElementById('area-count').textContent = circles.size;
+}
+
+let statusTimer = null;
+function setStatus(msg, ms = 3500) {
+  document.getElementById('status-msg').innerHTML = msg;
+  clearTimeout(statusTimer);
+  statusTimer = setTimeout(() => {
+    document.getElementById('status-msg').innerHTML = `エリア: <b id="area-count">${circles.size}</b>件`;
+  }, ms);
+}
+
+// ── Load / Save / Clear ───────────────────────────────────────
+async function loadAreas() {
+  try {
+    const res = await fetch('/api/admin/areas', {headers: {'Authorization': `Bearer ${token}`}});
+    if (!res.ok) return;
+    const areas = await res.json();
+    areas.forEach(a => {
+      const color = a.area_type === 'banned' ? '#ff2244' : '#3388ff';
+      const id = nextId++;
+      const circle = L.circle([a.lat, a.lng], {
+        radius: a.radius_m, color, fillColor: color,
+        fillOpacity: 0.35, weight: 1, opacity: 0.7
+      }).addTo(map);
+      circle.on('click', () => {
+        if (currentTool !== 'erase') return;
+        map.removeLayer(circle);
+        circles.delete(id);
+        updateCount();
+      });
+      circles.set(id, {circle, data: {lat: a.lat, lng: a.lng, radius_m: a.radius_m, area_type: a.area_type}});
+    });
+    updateCount();
+    if (areas.length > 0) setStatus(`📍 ${areas.length}件読み込み完了`);
+  } catch { setStatus('⚠️ 読み込みエラー'); }
+}
+
+async function saveAreas() {
+  const btn = document.getElementById('save-btn');
+  btn.disabled = true; btn.textContent = '保存中…';
+  const areas = Array.from(circles.values()).map(({data}) => data);
+  try {
+    const res = await fetch('/api/admin/areas', {
+      method: 'POST',
+      headers: {'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json'},
+      body: JSON.stringify({areas})
+    });
+    if (!res.ok) throw new Error();
+    const d = await res.json();
+    setStatus(`✅ ${d.saved}件保存完了`);
+  } catch { setStatus('❌ 保存失敗'); }
+  finally { btn.disabled = false; btn.textContent = '💾 保存'; }
+}
+
+function clearAll() {
+  if (!confirm(`${circles.size}件のエリアを全消去しますか？\n（保存ボタンを押すまで確定しません）`)) return;
+  circles.forEach(({circle}) => map.removeLayer(circle));
+  circles.clear();
+  updateCount();
+  setStatus('🗑 全消去しました（💾 保存で確定）');
+}
+
+document.getElementById('save-btn').addEventListener('click', saveAreas);
+document.getElementById('clear-btn').addEventListener('click', clearAll);
+</script>
+</body>
+</html>

@@ -1,10 +1,10 @@
 ---
 type: handoff
 title: 次チャットへの引き継ぎ
-updated: 2026-06-02
+updated: 2026-06-05
 ---
 
-# 引き継ぎ — AI-Brain セッション 2026-06-02
+# 引き継ぎ — AI-Brain セッション 2026-06-05
 
 このファイルを次のチャットの冒頭に貼り付けて使う。
 
@@ -38,7 +38,7 @@ tagishi
 
 ---
 
-## VPS 稼働中サービス（全7本）
+## VPS 稼働中サービス（全8本）
 
 | サービス | 内容 | 状態 |
 |---|---|---|
@@ -49,6 +49,9 @@ tagishi
 | `ai-brain-discord-responder.service` | 旧Bot（後で統合予定） | ✅ |
 | `ai-brain-dmm-discord-watcher.service` | `#dmm-素材投稿`監視→Notionキュー | ✅ |
 | `ai-brain-discord-inbox-bot.service` | `#inbox`ルーター・URL分析 | ✅ |
+| `fishing-platform.service` | 釣りマップAPI (uvicorn port 8080) | ✅ |
+
+**VPS メモリ（2026-06-05確認）:** 586MB / 1.9GB 使用 、1.3GB 利用可能、Swap未使用
 
 ---
 
@@ -60,27 +63,75 @@ tagishi
 | `com.ai-brain.canva-instructions` | 30分おき | Notion approved → Canva配置指示 → canva_pending |
 | `com.ai-brain.mac-config-sync` | 毎日3:00 | ~/.zshrc をマスクしてVaultに保存 |
 | `com.ai-brain.sync-youtube-cookies` | 毎週月曜3:00 | youtube-cookies.txt をVPSに転送 |
-| `com.ai-brain.sync` | （Mac側の旧sync・確認要） | — |
 
 ---
 
-## discord-inbox-bot の主な機能
+## 🆕 fishing-platform — 今日の作業まとめ（2026-06-05）
 
-| 機能 | コマンド例 | 動作 |
+**URL:** http://133.88.117.175  
+**VPS パス:** `/opt/ai-brain/Projects/fishing-platform/app/`
+
+### 完了した変更（全コミット済み・デプロイ済み）
+
+| # | 内容 | コミット |
 |---|---|---|
-| URL分析 | YouTube/Instagram URL貼り付け | yt-dlp で全情報収集→#通知に送信（📋コピーボタン付き） |
-| サービス確認 | `status` | VPSサービス一覧を返信 |
-| 同期 | `sync` | ai-brain-sync を即時実行 |
-| 再起動 | `restart <サービス名>` | systemctl restart |
-| ログ確認 | `log <サービス名>` | journalctl 最新20行 |
-| メモ保存 | `メモ: <内容>` | Notionに保存 |
-| Notionキュー | その他のメッセージ | 次回ターミナル起動時に処理 |
+| 1 | ヒートマップ全点赤バグ修正（OSM街灯スタッキング→max化・65点キャップ） | d75da7a |
+| 2 | 関東全域ヒートマップ（viewport bounds渡し・半径制限撤廃・moveend自動更新） | d019f48 |
+| 3 | ヒートマップ色濃化・タイル方式（pad±0.02°・canvas opacity 0.92） | f81d3c6 |
+| 4 | ポリゴン方式導入（natural=water岸→中央グラデーション点列） | 554a640 |
+| 5 | Overpass廃止→SQLite中心線からポリゴン生成 | bb74f8d |
+| 6 | kanto_rivers.geojson（2.2MB・4476ポリゴン）をローカルから取得して静的配置 | 28f4d46 |
+| 7 | ズームボタン5段階（right:70px・黒背景60%透過・白文字・🗾z8/z10/z13/z15/z17） | 28f4d46 |
+| 8 | サーモグラフィー配色（青→水色→緑→黄緑→黄→橙→赤）・期間フィルター削除 | bdb322c |
+| 9 | **SW v3更新（グラデーション未反映の根本修正）**・静的JSON化・ptトースト削除 | edb891d |
 
-**URL分析の技術スタック:**
-- yt-dlp + `--js-runtimes node --remote-components ejs:github`（EJSチャレンジ解決）
-- クッキー: `/opt/ai-brain/.credentials/youtube-cookies.txt`（Mac→VPS 週1自動転送）
-- 字幕: 日本語優先 → 英語フォールバック
-- 取得内容: タイトル・説明文・説明文内ドメイン・チャプター・字幕・上位コメント
+### 技術的決断と学び
+
+| 件 | 内容 |
+|---|---|
+| Overpassタイムアウト | `natural=water`+`out geom`は東京圏でも55秒以上かかる。ローカルから取得→静的GeoJSON方式に切り替え |
+| SW stale-while-revalidate | キャッシュバージョン更新（v2→v3）しないと新コードが反映されない。グラデーション未反映の根本原因だった |
+| 釣具店Overpass廃止 | `/data/tackle_shops.json`（18件）から即座読み込みに統一 |
+| 遊漁船 | `/data/boats.json`（10件）から読み込み・BOATS_DATA定数廃止 |
+
+### 現在のヒートマップ構造
+
+```
+ブラウザ → /api/heatmap → get_river_heatmap()
+              ↓
+          get_water_polygon_data() ← SQLite osm_rivers (26,282件)
+              ↓
+          _centerline_to_polygon() ← 川幅推定してポリゴン生成
+              ↓
+          _build_shore_gradient_points()
+              ↓ 点列（スコア0.07〜0.92）
+          Canvas サーモグラフィー描画
+          scoreToRgb: 0.15未満=透明 → 深青→水色→緑→黄緑→黄→橙→赤
+```
+
+### 静的データファイル
+
+| ファイル | 中身 | パス |
+|---|---|---|
+| `kanto_rivers.geojson` | 4,476水域ポリゴン（2.2MB） | `/static/data/` |
+| `tackle_shops.json` | 釣具店18件 | `/static/data/` |
+| `boats.json` | 遊漁船10件 | `/static/data/` |
+
+---
+
+## 🆕 fishing-platform — 次のアクション
+
+1. **http://133.88.117.175 を実機確認（最優先）**
+   - `🌡 ヒートマップ` ON → 岸=赤橙・中央=青のサーモグラフィーが出るか
+   - 釣具店・遊漁船が即座に表示されるか（Overpass検索なし）
+   - ズームボタン右端70pxに表示されるか
+   - SW v3が当たってブラウザキャッシュがクリアされているか（Ctrl+F5 or Dev Toolsで確認）
+
+2. **Phase 5 開始判断**（tagishiの確認後）
+   - 月額480円課金（Stripe）
+   - 釣りブログ自動更新（SEO）
+   - B2Bデータ販売
+   - 遊漁船DB本格化（手数料5〜10%）
 
 ---
 
@@ -96,69 +147,10 @@ VPS Bot  Mac定時  tagishi     Mac定時          VPS       tagishi  VPS投稿
 (済み)   (済み)            (済み)           (未実装)            (未実装)
 ```
 
-**実装済みスクリプト:**
-
-| ファイル | 役割 | STEP |
-|---|---|---|
-| `Workflows/dmm-discord-watcher.py` | #dmm-素材投稿 → Notionキュー | 2 ✅ |
-| `Workflows/queue-processor.py` | queued → Claude API台本 → draft | 3 ✅ |
-| `Workflows/canva-instructions.py` | approved → Canva配置指示 → canva_pending | 5 ✅ |
-| `Workflows/vps-assemble-video.py` | 骨格のみ | 6 ⚠️ |
-| `Workflows/vps-youtube-upload.py` | 骨格のみ | 8 ⚠️ |
-
----
-
-## 競合分析自動化（確定 2026-06-03）
-
-**使い方:** `#inbox` に `競合分析: ジャンル名` を投稿するだけ
-
-| ステップ | 実行者 | 内容 |
-|---|---|---|
-| 即時 | VPS Bot | YouTube Shorts 最大20本収集→Notionキュー登録 |
-| 毎日2:00 | Mac launchd | competitive-analyzer.py が一括分析 |
-| 翌朝 | Discord #通知 | 完了通知＋Notionレポートリンク |
-
-分析内容: タイトル傾向・冒頭30秒構成・コメント反応・サムネイルパターン・課金誘発共通点・Canvaアドバイス
-
----
-
-## スケールアップ設計（確定 2026-06-03）
-
-| 項目 | 設計 |
-|---|---|
-| バリエーション | 1素材から **4本** 一括生成（デフォルト） |
-| アカウント | **YouTube 4アカウント**で検証スタート |
-| 投稿時間 | アカウントごとにずらす（9:00 / 12:00 / 18:00 / 21:00） |
-| Canvaテンプレ | アカウントごとに専用テンプレートを使用 |
-| IP対策 | 収益が出てから（今は保留） |
-
-詳細設計: `master-context.md` セクション9「スケールアップ設計」参照
-
----
-
-## 次にやること（優先順）
-
-1. **4バリエーション対応に queue-processor.py を改修**
-   - 1素材 → Claude API 1回 → 4バリエーション（タイトル・説明文・台本）一括生成
-   - Notion に4件レコード作成（account_id: 1〜4, source_group_id: 同一UUID）
-
-2. **Notion DBにアカウント管理フィールドを追加**
-   - `account_id`（select: 1/2/3/4）
-   - `variant_num`（number）
-   - `source_group_id`（rich_text）
-   - `scheduled_time`（date）
-   - `canva_template_id`（rich_text）
-
-3. **dmm-canva-assembler.py 実装（STEP 6）**
-   - canva_pending → account_idからテンプレートIDを決定 → Canva組立 → canva_ready
-
-4. **パイプライン通し確認**
-   - `#dmm-素材投稿` に画像を投稿 → queued → draft → approved → canva_pending まで確認
-
-5. **YouTube OAuth2 認証（4アカウント分）**
-   - `python3 vps-youtube-upload.py --auth` を各アカウントで実行
-
-6. **ConoHa APIパスワード再設定**（tagishi手動）→ 残高監視有効化
+**次にやること（dmm-manga-affiliate）:**
+1. 4バリエーション対応に queue-processor.py を改修（1素材→4本）
+2. Notion DBにアカウント管理フィールド追加（account_id・variant_num・source_group_id）
+3. dmm-canva-assembler.py 実装（STEP 6: canva_pending → canva_ready）
 
 ---
 
@@ -173,7 +165,7 @@ VPS Bot  Mac定時  tagishi     Mac定時          VPS       tagishi  VPS投稿
 | Notion Outbox DB | `36f1cad4-aa98-81fb-93d8-d40bfb95cff9` |
 | Notion コンテンツ審査DB | `3731cad4aa98810e82f8c0f99a483cbb` |
 | Vault ローカル | `~/Desktop/ClaudeProjects/AI-Brain/` |
-| Macクッキー | `~/.config/ai-brain/youtube-cookies.txt` |
+| 釣りマップ | http://133.88.117.175 |
 
 ---
 
@@ -183,8 +175,8 @@ VPS Bot  Mac定時  tagishi     Mac定時          VPS       tagishi  VPS投稿
 # 1. VPS待機タスク確認（最優先）
 python3 Shared/Workflows/vps-task-checker.py
 
-# 2. Notionキュー確認（queued件数）
-#    → セッション中に処理する
+# 2. Inboxキュー確認
+python3 Shared/Workflows/queue.py status
 
 # 3. このファイルを読んだ → 作業開始
 ```

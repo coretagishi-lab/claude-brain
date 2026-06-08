@@ -1,0 +1,56 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/tagishitakuya/Desktop/ClaudeProjects/AI-Brain/Shared/Workflows/notion-sync-hook.sh"
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(NOTION_TOKEN=\"ntn_H7697902232dcdxNos161tlzGsMg1aSf16vYvaqv6Ni2X0\" /Users/tagishitakuya/Desktop/ClaudeProjects/AI-Brain/Shared/Workflows/notion-sync.sh *)",
+      "Bash(curl -s -X POST https://api.notion.com/v1/databases/3671cad4-aa98-8050-912c-c3d5dda825a5/query -H 'Authorization: Bearer ntn_H7697902232dcdxNos161tlzGsMg1aSf16vYvaqv6Ni2X0' -H 'Notion-Version: 2022-06-28' -H 'Content-Type: application/json' -d '{\"filter\":{\"property\":\"名前\",\"title\":{\"equals\":\"Test-Sync\"}}}')",
+      "Bash(python3 -c ' *)",
+      "Bash(curl -s -X PATCH https://api.notion.com/v1/pages/3671cad4-aa98-81b8-aae9-e94fffcf25e4 -H 'Authorization: Bearer ntn_H7697902232dcdxNos161tlzGsMg1aSf16vYvaqv6Ni2X0' -H 'Notion-Version: 2022-06-28' -H 'Content-Type: application/json' -d '{\"archived\": true}')",
+      "Bash(curl -s https://api.notion.com/v1/blocks/1231cad4aa9880799c41c2964a93e438/children -H 'Authorization: Bearer ntn_b76979022321waKnz0wxxXHHc0Tv7j0np04w1IOSKXX1ka' -H 'Notion-Version: 2022-06-28')",
+      "Bash(NOTION_TOKEN=\"ntn_b76979022321waKnz0wxxXHHc0Tv7j0np04w1IOSKXX1ka\" /Users/tagishitakuya/Desktop/ClaudeProjects/AI-Brain/Shared/Workflows/notion-sync.sh *)",
+      "Bash(command -v python3)",
+      "Bash(python3 -c \"import google.oauth2.service_account; print\\('google-auth OK'\\)\")",
+      "Bash(python3 -c \"import googleapiclient; print\\('google-api-python-client OK'\\)\")",
+      "Bash(python3 -m pip list)",
+      "Bash(command -v pip3)",
+      "Bash(pip3 --version)",
+      "Bash(python3 -c \"import jwt; print\\('pyjwt ok'\\)\")",
+      "Bash(python3 -c \"import cryptography; print\\('cryptography ok'\\)\")",
+      "Bash(python3 -c \"import rsa; print\\('rsa ok'\\)\")",
+      "Bash(chmod +x *)",
+      "Bash(./Shared/Workflows/gdrive-upload.sh test *)",
+      "Bash(./Shared/Workflows/gdrive-upload.sh *)",
+      "Bash(echo '')",
+      "Bash(echo '# Notion API Token')",
+      "Bash(echo 'export NOTION_TOKEN=\"ntn_H7697902232dcdxNos161tlzGsMg1aSf16vYvaqv6Ni2X0\"')",
+      "Bash(xxd)",
+      "Skill(update-config)",
+      "Bash(python3 *)",
+      "Bash(command -v ffmpeg)",
+      "Bash(ffmpeg -version)",
+      "Bash(pip3 install *)",
+      "WebFetch(domain:youtube.com)",
+      "Read(//System/Library/Fonts/**)",
+      "Bash(docker --version)",
+      "Bash(ffmpeg -filters)",
+      "Bash(curl -s \"https://soundeffect-lab.info/sound/anime/\")",
+      "WebFetch(domain:soundeffect-lab.info)",
+      "Bash(say -v '?')",
+      "Bash(curl *)",
+      "Bash(ffmpeg -y -ss 5 -i /tmp/dmm-manga-video/dmm-manga-A-2026-05-22-01-v2.mp4 -vframes 1 /tmp/dmm-manga-video/v2_preview.jpg)",
+      "Bash(ffmpeg -y -ss 20 -i /tmp/dmm-manga-video/dmm-manga-A-2026-05-22-01-v2.mp4 -vframes 1 /tmp/dmm-manga-video/v2_preview2.jpg)"
+    ]
+  }
+}
