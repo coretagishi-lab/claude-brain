@@ -266,6 +266,8 @@ input[type=file]{display:none}
 .loader{width:40px;height:40px;border-radius:50%;border:3px solid rgba(0,201,177,0.2);border-top-color:var(--teal);animation:spin 0.9s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 .loader-text{font-size:0.85rem;color:var(--gray)}
+.river-label.leaflet-tooltip{background:rgba(10,22,40,0.9)!important;border:1px solid rgba(0,136,255,0.4)!important;color:#4f9eff!important;font-size:0.68rem!important;padding:2px 7px!important;border-radius:4px!important;white-space:nowrap!important;box-shadow:none!important}
+.river-label.leaflet-tooltip::before{display:none!important}
 </style>
 </head>
 <body>
@@ -461,7 +463,8 @@ let catchMarkers=[], tackleMarkers=[], boatMarkers=[], anglerMarkers=[];
 let heatLayer=null;
 let canvasHeatLayer=null;
 let riverPolygonLayers=[];
-let riverGeoData=null;   // kanto_rivers.geojson キャッシュ
+let riverGeoData=null;
+let osmRiversCache=null;  // OSM Overpass GeoJSON キャッシュ
 let heatmapDebounceTimer=null;
 let activeModes=new Set(['catches']), currentPeriod='all', filterSpecies='';
 let selectedPrivacy='area', selectedSpeciesForPost=null;
@@ -719,18 +722,37 @@ function addCatchPin(c){
   catchMarkers.push(m);
 }
 
-// ── Heatmap: river-tiles オーバーレイ ────────────────────────────
+// ── Heatmap: OSM Overpass GeoJSON 川ポリゴン オーバーレイ ──────────
 async function renderHeatmap(){
+  console.log('[Heatmap] renderHeatmap() called. activeModes:', [...activeModes]);
   removeCanvasHeat();
   removeRiverPolygons();
-  const layer=L.tileLayer('/river-tiles/{z}/{x}/{y}.png',{
-    opacity:0.8,
-    maxNativeZoom:17,
-    maxZoom:19,
-    minZoom:13,
-  }).addTo(map);
-  riverPolygonLayers.push(layer);
-  showToast('🌡 川タイルマップ表示中');
+  showToast('🌊 川データ読み込み中...');
+  try{
+    if(!osmRiversCache){
+      osmRiversCache=await fetch('/data/osm_rivers_tokyo.geojson').then(r=>{
+        if(!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      });
+    }
+    const geoLayer=L.geoJSON(osmRiversCache,{
+      style(feat){
+        const isArea=feat.geometry.type==='Polygon'||feat.geometry.type==='MultiPolygon';
+        return{color:'#0088ff',fillColor:'#0055cc',weight:isArea?1:2,opacity:0.85,fillOpacity:isArea?0.45:0};
+      },
+      onEachFeature(feat,layer){
+        const name=feat.properties&&feat.properties.name;
+        if(name) layer.bindTooltip(name,{sticky:true,className:'river-label'});
+      }
+    }).addTo(map);
+    riverPolygonLayers.push(geoLayer);
+    const cnt=osmRiversCache.features.length;
+    showToast(`🌊 川 ${cnt}件表示`);
+    console.log('[Heatmap] GeoJSON layer added, features:', cnt);
+  }catch(e){
+    console.error('[Heatmap] GeoJSON load error:', e);
+    showToast('川データ取得失敗','error');
+  }
 }
 
 function scheduleHeatmapRefresh(){
@@ -1119,7 +1141,7 @@ document.querySelectorAll('.mode-pill').forEach(p=>p.addEventListener('click',()
     p.classList.add('active');
     // 追加レイヤーだけ描画（他は維持）
     if(mode==='catches') loadCatches();
-    else if(mode==='heatmap') renderHeatmap();
+    else if(mode==='heatmap'){console.log('[Heatmap] pill clicked → activeModes.has(heatmap):', activeModes.has('heatmap'));renderHeatmap();}
     else if(mode==='tackle') loadTackleShops();
     else if(mode==='boats') renderBoats();
     else if(mode==='anglers') loadFishingAnglers();
