@@ -4,7 +4,7 @@ current_status: active
 priority: medium
 due_date: ""
 review_waiting: false
-updated_at: 2026-06-08
+updated_at: 2026-06-09
 ---
 
 ## current_goal
@@ -58,7 +58,7 @@ updated_at: 2026-06-08
 - Nginx: ポート80リバースプロキシ → 8080
 
 ## next_action
-- 関東圏外エリア（大阪・名古屋等）でヒートマップを確認→ocean exclusion問題があれば改善→OKならPhase 5（課金・SEO・B2B）に進む
+- ブラウザでヒートマップボタンをタップして川GeoJSON描画を目視確認 → OKならPhase 5（課金・SEO・B2B）に進む
 
 ## blocker
 - 遊漁船は現在ハードコード7艘のみ（本格DB化は Phase 5 以降）

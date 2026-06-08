@@ -1,7 +1,7 @@
 ---
 title: ANGLER'S MAP 開発ログ
 project: fishing-platform
-period: 2026-06-04 〜 2026-06-05
+period: 2026-06-04 〜 2026-06-09
 type: devlog
 ---
 
@@ -243,9 +243,54 @@ curl http://localhost:8080/river-tiles/13/7274/3229.png       → 200
 
 ---
 
+## 2026-06-09 — ヒートマップをOSM GeoJSON方式に切り替え（ベースライン確定）
+
+### 変更内容
+
+PNG タイルオーバーレイ（`L.tileLayer('/river-tiles/{z}/{x}/{y}.png')`）を廃止し、OSM Overpass API から取得した実ベクターデータ（GeoJSON）を `L.geoJSON()` で直接描画する方式に切り替えた。
+
+### 採用理由
+
+| タイル方式（旧） | GeoJSON方式（新） |
+|---|---|
+| CartoDB タイル画像のピクセル色解析に依存 → CDN変更で壊れる | OSM公式データを直接描画 → 安定 |
+| pre-generated PNG 324MB / 29,025ファイル | GeoJSONファイル 1ファイル 1.4MB |
+| 関東域（z13〜15）のみ生成済み。全国化には数GB必要 | 1クエリで任意エリアを追加可能 |
+| 橋の下が途切れる問題（タイル生成範囲外） | ポリゴン/ラインデータなので途切れなし |
+
+### 実装詳細
+
+**フェッチスクリプト**: `Projects/fishing-platform/fetch_osm_rivers.py`
+- Overpass API クエリ（東京23区 bbox: 35.53,139.57,35.82,139.92）
+- `waterway~"^(river|canal)$"` + `natural=water`（20点以上のポリゴン）
+- 座標精度 4桁（約10m精度）に丸め・不要プロパティ削除
+
+**生成ファイル**: `static/data/osm_rivers_tokyo.geojson`
+- 1,418フィーチャー（川ライン 621本 + 水体ポリゴン 797件）
+- 1.4MB（nginx gzip有効化で転送量 ~400KB）
+
+**フロントエンド変更** (`static/index.html`):
+- `osmRiversCache` 変数追加（ブラウザキャッシュ）
+- `renderHeatmap()` を GeoJSON フェッチ → `L.geoJSON()` 描画に置き換え
+- 川ライン: 青ストローク（`#0088ff`, weight:2）
+- 水体ポリゴン: 青塗り（`#0055cc`, fillOpacity:0.45）
+- 川名ホバーツールチップ追加（`.river-label` CSS）
+
+### ⚠️ ベースライン宣言
+
+> **これがヒートマップのベースライン。`osm_rivers_tokyo.geojson` は削除・変更禁止。**
+> ヒートマップの表示方式（GeoJSON描画）も勝手に変更禁止。変更する場合はtagishiの明示的な指示が必要。
+
+### タイル方式の廃止
+
+`static/river-tiles/` フォルダ（324MB / 29,025ファイル）を削除しVPS容量を解放。
+`river-tiles` エンドポイント（`/river-tiles/{z}/{x}/{y}.png`）はmain.pyに残存するが使用されない。
+
+---
+
 ## 次のステップ
 
-1. **タイル目視確認**: `http://133.88.117.175` でヒートマップボタン押下 → 川タイルが表示されるか確認
+1. **目視確認**: `http://133.88.117.175` でヒートマップボタン → 川GeoJSON描画確認
 2. **Phase 5 開始**: 月額 480 円課金（Stripe）/ SEO ブログ自動更新 / B2B データ販売
 3. **遊漁船 DB**: 実際の予約データと手数料フローの設計
 4. **タイル範囲拡張**: 現在は関東域のみ。全国化 or 需要が高いエリアに絞るか判断
