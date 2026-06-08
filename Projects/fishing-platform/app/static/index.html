@@ -751,7 +751,7 @@ async function renderHeatmap(){
     const meta=osmRiversCache.metadata||{};
     const ksj=meta.ksj_count||0;
     showToast(`🌊 川/湖沼 ${osmRiversCache.features.length}件（KSJ:${ksj}件含む）`);
-    console.log('[Heatmap] GeoJSON layer added, features:', cnt);
+    console.log('[Heatmap] GeoJSON layer added, features:', osmRiversCache.features.length);
   }catch(e){
     console.error('[Heatmap] GeoJSON load error:', e);
     showToast('川データ取得失敗','error');
