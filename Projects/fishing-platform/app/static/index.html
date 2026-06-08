@@ -464,7 +464,7 @@ let heatLayer=null;
 let canvasHeatLayer=null;
 let riverPolygonLayers=[];
 let riverGeoData=null;
-let osmRiversCache=null;  // OSM Overpass GeoJSON キャッシュ
+let osmRiversCache=null;  // 統合GeoJSON（OSM + 国土数値情報）キャッシュ
 let heatmapDebounceTimer=null;
 let activeModes=new Set(['catches']), currentPeriod='all', filterSpecies='';
 let selectedPrivacy='area', selectedSpeciesForPost=null;
@@ -730,7 +730,7 @@ async function renderHeatmap(){
   showToast('🌊 川データ読み込み中...');
   try{
     if(!osmRiversCache){
-      osmRiversCache=await fetch('/data/osm_rivers_tokyo.geojson').then(r=>{
+      osmRiversCache=await fetch('/data/tokyo_rivers_combined.geojson').then(r=>{
         if(!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
       });
@@ -738,6 +738,8 @@ async function renderHeatmap(){
     const geoLayer=L.geoJSON(osmRiversCache,{
       style(feat){
         const isArea=feat.geometry.type==='Polygon'||feat.geometry.type==='MultiPolygon';
+        const isKsj=feat.properties&&feat.properties.source==='ksj';
+        if(isKsj) return{color:'#00aaff',fillColor:'#0077cc',weight:1.5,opacity:0.9,fillOpacity:0.55};
         return{color:'#0088ff',fillColor:'#0055cc',weight:isArea?1:2,opacity:0.85,fillOpacity:isArea?0.45:0};
       },
       onEachFeature(feat,layer){
@@ -746,8 +748,9 @@ async function renderHeatmap(){
       }
     }).addTo(map);
     riverPolygonLayers.push(geoLayer);
-    const cnt=osmRiversCache.features.length;
-    showToast(`🌊 川 ${cnt}件表示`);
+    const meta=osmRiversCache.metadata||{};
+    const ksj=meta.ksj_count||0;
+    showToast(`🌊 川/湖沼 ${osmRiversCache.features.length}件（KSJ:${ksj}件含む）`);
     console.log('[Heatmap] GeoJSON layer added, features:', cnt);
   }catch(e){
     console.error('[Heatmap] GeoJSON load error:', e);
