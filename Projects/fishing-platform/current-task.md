@@ -1,12 +1,12 @@
 ---
 type: task
 status: idle
-checkpoint: ヒートマップ: GeoJSONポリゴン方式デプロイ完了（SW v7）
-updated_at: 2026-06-05
+checkpoint: /river-tiles オンデマンド生成エンドポイント追加・VPSデプロイ完了
+updated_at: 2026-06-08
 ---
 
 ## checkpoint
-VPSに最新index.html（GeoJSONポリゴン方式）をデプロイ完了。`/data/kanto_rivers.geojson`をフェッチしてL.geoJSONでrgba(0,100,255,0.6)のポリゴン描画。river-tilesディレクトリは旧方式の残骸で現行コードでは不使用。
+FastAPIに `GET /river-tiles/{z}/{x}/{y}.png` エンドポイントを追加。ファイル存在→即FileResponse、未生成→CartoDB Darkダウンロード→川ピクセル検出→PNG生成→キャッシュ保存して返す。既存のgenerate_river_tiles.pyは未変更。ocean exclusionは単タイル生成では未適用（海岸部タイルは全面青になる仕様）。venvにPillow/numpy/scipy/requestsをインストール済み。
 
 ## checklist
 - [x] PROJECT_STATUS.md 作成
