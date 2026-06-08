@@ -15,8 +15,10 @@ BBOX = "35.53,139.57,35.82,139.92"
 QUERY = f"""[out:json][timeout:180];
 (
   way["waterway"~"^(river|canal|stream|drain)$"]({BBOX});
+  way["waterway"="riverbank"]({BBOX});
   way["natural"="water"]({BBOX});
   relation["natural"="water"]["type"="multipolygon"]({BBOX});
+  relation["waterway"="riverbank"]({BBOX});
 );
 out geom;
 """
