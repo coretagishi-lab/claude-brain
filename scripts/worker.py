@@ -1,17 +1,24 @@
 #!/usr/bin/env python3
 """
-brain-worker: Notion キュー監視 + claude 対話モードで自動処理
+brain-worker: Notion キュー監視 + Claude サブプロセスで自動処理
 
-動作:
-  1. POLL_INTERVAL 秒ごとに Notion の queued ページを確認
-  2. queued があれば claude tmux ウィンドウに処理を依頼
-  3. 結果を Notion に draft 登録 + タスク確認ボードに「👀 確認待ち」登録
+フロー:
+  1. 30秒ごとに Notion の queued を確認
+  2. queued が 0件 → Claude を呼ばない、ログだけ出して待機
+  3. queued が 1件以上 → Claude を subprocess で1回起動して1件処理
+  4. Claude 終了 → 次のポーリングまで待機
+
+Claude の呼び方:
+  subprocess.run(["claude"], input=prompt, ...)
+  - claude -p は使わない
+  - stdin にプロンプトを渡す対話モード起動
+  - 処理が終わったら Claude プロセスは終了
 
 新しいジョブを追加する場合:
   1. job_XXX(props) 関数を実装
-  2. main() の poll_and_dispatch() に呼び出しを追加
+  2. poll_once() に呼び出しを追記
 """
-import json, os, re, subprocess, sys, time, uuid
+import json, os, re, subprocess, sys, time
 import urllib.request, urllib.error
 from datetime import datetime
 from pathlib import Path
@@ -25,15 +32,22 @@ NOTION_VERSION       = "2022-06-28"
 VAULT           = Path(__file__).resolve().parent.parent
 EXPERIENCE_FILE = VAULT / "Projects" / "dmm-manga-affiliate" / "Knowledge" / "experience.md"
 
-TMUX_SESSION     = "brain-worker"
-TMUX_CLAUDE_WIN  = "claude"
-POLL_INTERVAL    = 30   # seconds
-CLAUDE_TIMEOUT   = 180  # seconds per job
+POLL_INTERVAL  = 30   # 秒
+CLAUDE_TIMEOUT = 300  # 秒（Claude の応答待ち上限）
 
-# 送信済みページID（セッション中に再送しない）
-# 成功時: Notion status が "draft" になるので自然に queued クエリから外れる
-# 失敗時: _in_flight に残すことで連続再送を防ぐ（手動でNotionを修正して再試行）
+# 送信済みページID（セッション中に同じページを再送しない）
+# 成功時: Notion status が "draft" になるため自然に queued クエリから外れる
+# 失敗時: _in_flight に残すことで連続再送を防ぐ（再試行は brain-worker 再起動で）
 _in_flight: set = set()
+
+
+# ── ユーティリティ ────────────────────────────────────────────────────────
+def ts() -> str:
+    return datetime.now().strftime("%H:%M:%S")
+
+
+def log(msg: str):
+    print(f"[{ts()}] {msg}", flush=True)
 
 
 # ── Notion ────────────────────────────────────────────────────────────────
@@ -80,10 +94,10 @@ def extract_props(page):
 def update_to_draft(page_id, content):
     script_text = "\n".join(f"{i+1}. {l}" for i, l in enumerate(content["telops"]))
     notion("PATCH", f"/pages/{page_id}", {"properties": {
-        "status":        {"select":    {"name": "draft"}},
-        "youtube_title": {"rich_text": rt(content["youtube_title"])},
-        "description":   {"rich_text": rt(content["description"])},
-        "script":        {"rich_text": rt(script_text)},
+        "status":            {"select":    {"name": "draft"}},
+        "youtube_title":     {"rich_text": rt(content["youtube_title"])},
+        "description":       {"rich_text": rt(content["description"])},
+        "script":            {"rich_text": rt(script_text)},
         "api_cost_estimate": {"rich_text": rt("claude Code (無料)")},
     }})
     blocks = [
@@ -140,86 +154,61 @@ def load_experience_rules():
     return ""
 
 
-# ── claude tmux ドライバー ─────────────────────────────────────────────────
-def _tmux_target():
-    return f"{TMUX_SESSION}:{TMUX_CLAUDE_WIN}"
-
-
-def claude_send(prompt_md: str) -> tuple:
+# ── Claude サブプロセス ───────────────────────────────────────────────────
+def invoke_claude(prompt: str) -> str:
     """
-    プロンプトを temp ファイルに書き込み、claude tmux ウィンドウに
-    「ファイルを読んで実行してください」という1行指示を送る。
-    Returns: (marker, tmp_path)
+    claude コマンドをサブプロセスで起動し、stdin にプロンプトを渡す。
+    claude -p は使わない。対話モードで起動し、処理完了後にプロセスを終了させる。
     """
-    marker = "DONE_" + uuid.uuid4().hex[:10]
-    tmp = Path(f"/tmp/brain_{marker}.md")
-    tmp.write_text(prompt_md, encoding="utf-8")
-
-    # 1行の ASCII-safe 指示（tmux send-keys は日本語も通るが短く安全に）
-    instruction = (
-        f"{tmp} をReadツールで読んで指示に従い実行してください。"
-        f"回答の最後の行に「{marker}」とだけ書いてください。"
+    result = subprocess.run(
+        ["claude"],
+        input=prompt,
+        capture_output=True,
+        text=True,
+        timeout=CLAUDE_TIMEOUT,
     )
-    subprocess.run(["tmux", "send-keys", "-t", _tmux_target(), instruction, "Enter"])
-    return marker, tmp
-
-
-def claude_wait(marker: str, tmp: Path, timeout: int = CLAUDE_TIMEOUT) -> str:
-    """
-    tmux pane を3秒ごとにポーリングし、marker が現れたらペイン内容を返す。
-    タイムアウト時は None。
-    """
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        time.sleep(3)
-        result = subprocess.run(
-            ["tmux", "capture-pane", "-t", _tmux_target(), "-p", "-S", "-3000"],
-            capture_output=True, text=True
+    log(f"  claude exit={result.returncode} | "
+        f"stdout={len(result.stdout)}文字 | stderr={result.stderr[:100]!r}")
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"claude failed (exit {result.returncode})\n"
+            f"  stdout: {result.stdout[:300]!r}\n"
+            f"  stderr: {result.stderr[:300]!r}"
         )
-        if marker in result.stdout:
-            tmp.unlink(missing_ok=True)
-            return result.stdout
-    tmp.unlink(missing_ok=True)
-    return None
+    return result.stdout.strip()
 
 
-def parse_json_from_pane(pane: str, marker: str) -> dict:
-    """ペイン出力の marker より前から JSON を抽出する。"""
-    section = pane.split(marker)[0]
+def extract_json(text: str) -> dict:
+    """Claude の出力から JSON を抽出する。"""
     # ```json ブロック優先
-    m = re.search(r"```json\s*(\{.*?\})\s*```", section, re.DOTALL)
+    m = re.search(r"```json\s*(\{.*?\})\s*```", text, re.DOTALL)
     if m:
         return json.loads(m.group(1))
     # bare JSON フォールバック
-    m = re.search(r'\{\s*"youtube_title".*?\}', section, re.DOTALL)
+    m = re.search(r'\{\s*"youtube_title".*?\}', text, re.DOTALL)
     if m:
         return json.loads(m.group(0))
-    return None
+    raise ValueError(f"JSON が見つかりません (出力の末尾: {text[-200:]!r})")
 
 
 # ── ジョブ定義 ─────────────────────────────────────────────────────────────
 def job_generate_script(props: dict) -> bool:
-    """
-    DMM 漫画 1件のテロップ台本を生成して Notion に登録する。
-    新しいジョブを追加する場合はこの関数をテンプレートにする。
-    """
+    """queued ページのテロップ台本を生成して Notion に draft 登録する。"""
     rules = load_experience_rules()
     rules_section = f"\n\n## 改善ルール\n{rules}" if rules else ""
 
-    prompt = f"""## タスク
-以下の漫画作品のYouTube Shorts用テロップ台本を生成してください。
+    prompt = f"""以下の漫画作品のYouTube Shorts用テロップ台本を生成してください。
 
 ## テロップルール
 - 体言止め・各15文字以内
 - ①〜⑧でストーリーの流れ: ①②フック → ③〜⑥展開・山場 → ⑦⑧結末・余韻
 - VOICEVOXで読み上げるので自然な日本語{rules_section}
 
-## 入力情報
+## 入力
 - 漫画タイトル: {props['manga_title']}
 - アフィリエイトURL: {props['affiliate_url'] or '（未設定）'}
 
-## 出力形式
-JSONのみ出力してください（説明文・前置き不要）:
+## 出力形式（JSONのみ・説明不要）
 ```json
 {{
   "youtube_title": "（60文字以内・断言形・【漫画】タグ付き）",
@@ -228,94 +217,74 @@ JSONのみ出力してください（説明文・前置き不要）:
 }}
 ```"""
 
-    marker, tmp = claude_send(prompt)
-    pane = claude_wait(marker, tmp)
-    if not pane:
-        print(f"  [ERROR] タイムアウト ({CLAUDE_TIMEOUT}s): {props['manga_title']}")
-        return False
-
-    content = parse_json_from_pane(pane, marker)
-    if not content:
-        print(f"  [ERROR] JSON解析失敗: {props['manga_title']}")
-        return False
+    raw = invoke_claude(prompt)
+    content = extract_json(raw)
 
     update_to_draft(props["page_id"], content)
     notion_url = f"https://app.notion.com/p/{props['page_id'].replace('-', '')}"
     register_to_task_board(props["manga_title"], content["telops"], notion_url)
-    print(f"  [OK] {props['manga_title']} → draft 登録完了")
+    log(f"  ✅ {props['manga_title']} → draft 登録完了")
     return True
 
 
 # ── ポーリングループ ────────────────────────────────────────────────────────
-def _ts():
-    return datetime.now().strftime("%H:%M")
-
-
-def poll_and_dispatch():
+def poll_once():
     """
-    1サイクル1件処理。送信済みページは _in_flight でスキップ。
-    新しいジョブを追加するときはここに追記する。
+    1サイクル分の処理。新しいジョブを追加するときはここに追記する。
 
-    追加例:
-      for page in get_approved_pages():
-          _dispatch(page, job_assemble_video)
+    追加例（将来）:
+      approved = get_approved_pages()
+      if approved:
+          pending = [p for p in approved if p["id"] not in _in_flight]
+          if pending:
+              _in_flight.add(pending[0]["id"])
+              job_assemble_video(extract_props(pending[0]))
     """
-    # ジョブ1: queued → テロップ台本生成（1サイクルで最大1件）
+    # ── ジョブ1: queued → テロップ台本生成 ──────────────────────────────
     all_queued = get_queued_pages()
-    pending = [p for p in all_queued if p["id"] not in _in_flight]
 
-    if not pending:
-        skipped = len(all_queued) - len(pending)
-        skip_msg = f" ({skipped}件は送信済みのためスキップ)" if skipped else ""
-        print(f"[{_ts()}] queued: 0{skip_msg} | 次回: {POLL_INTERVAL}s後")
+    if not all_queued:
+        log("queued: 0件 | Claude を呼ばずに待機")
         return
 
-    # 1件取り出して処理（残りは次サイクル）
+    pending = [p for p in all_queued if p["id"] not in _in_flight]
+    if not pending:
+        log(f"queued: {len(all_queued)}件 (すべて送信済み) | スキップ")
+        return
+
     page = pending[0]
     props = extract_props(page)
     remaining = len(pending) - 1
 
-    print(f"\n[{_ts()}] 処理開始: {props['manga_title'] or '(タイトル未設定)'}"
-          f"{f'  (残り {remaining}件)' if remaining else ''}")
+    log(f"queued: {len(all_queued)}件 | 処理開始: 「{props['manga_title'] or '(タイトル未設定)'}」"
+        + (f" | 残り {remaining}件は次回" if remaining else ""))
 
-    # 送信前に _in_flight へ登録（失敗時も再送しない）
+    # 送信前に登録（失敗時も再送しない）
     _in_flight.add(props["page_id"])
+
     try:
         job_generate_script(props)
     except Exception as e:
-        print(f"  [ERROR] {props['manga_title']}: {e}")
-        # _in_flight に残す → 今セッション中は再試行しない
-        # 再試行したい場合は brain-worker を再起動する
-
-    # ジョブ2（将来）: approved → 動画組み立て
-    # for page in get_approved_pages():
-    #     if page["id"] not in _in_flight:
-    #         _in_flight.add(page["id"])
-    #         job_assemble_video(extract_props(page))
-    #         break  # 1サイクル1件
-
-    # ジョブ3（将来）: 週次アナリティクス
-    # job_weekly_analytics()
+        log(f"  ❌ 失敗: {e}")
+        log("  → Notion の該当ページを確認してください。再試行は brain-worker 再起動で。")
 
 
 def main():
     missing = [k for k in ["NOTION_TOKEN", "NOTION_CONTENT_DB_ID"] if not os.environ.get(k)]
     if missing:
-        print(f"[worker] ❌ 環境変数未設定: {', '.join(missing)}")
+        print(f"❌ 環境変数未設定: {', '.join(missing)}")
         sys.exit(1)
 
-    print(f"[brain-worker] 起動: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
-    print(f"[brain-worker] ポーリング間隔: {POLL_INTERVAL}s | claude timeout: {CLAUDE_TIMEOUT}s")
-    print(f"[brain-worker] tmux ターゲット: {_tmux_target()}")
+    log(f"brain-worker 起動 | ポーリング: {POLL_INTERVAL}s | Claude timeout: {CLAUDE_TIMEOUT}s")
 
     while True:
         try:
-            poll_and_dispatch()
+            poll_once()
         except KeyboardInterrupt:
-            print("\n[brain-worker] 停止")
+            log("停止")
             break
         except Exception as e:
-            print(f"[{_ts()}] [ERROR] {e}")
+            log(f"❌ {e}")
 
         time.sleep(POLL_INTERVAL)
 
