@@ -6,19 +6,14 @@ STEP 3: Notionキュー（status:queued）を処理
   - Notionをstatus:draftに更新
   - タスク確認ボードに「👀 確認待ち」で登録
 """
-import base64, json, os, re, sys, urllib.request, urllib.error
+import base64, json, os, re, subprocess, sys, tempfile, urllib.request, urllib.error
 from datetime import datetime
 from pathlib import Path
 
-ANTHROPIC_API_KEY    = os.environ.get("ANTHROPIC_API_KEY", "")
 NOTION_TOKEN         = os.environ.get("NOTION_TOKEN", "")
 NOTION_CONTENT_DB_ID = os.environ.get("NOTION_CONTENT_DB_ID", "")
 NOTION_TASK_BOARD_ID = "3671cad4aa98813b85b2ed9e3127b913"
 NOTION_VERSION       = "2022-06-28"
-MODEL                = "claude-sonnet-4-6"
-
-PRICE_INPUT_PER_M  = 3.0
-PRICE_OUTPUT_PER_M = 15.0
 
 VAULT           = Path(__file__).resolve().parents[2]
 EXPERIENCE_FILE = VAULT / "Knowledge" / "experience.md"
@@ -150,7 +145,7 @@ def load_experience_rules():
 
 
 def generate_content(manga_title, affiliate_url, image_b64, image_type, experience_rules):
-    system = """あなたはDMMアフィリエイト漫画動画のテロップライターです。
+    system_prompt = """あなたはDMMアフィリエイト漫画動画のテロップライターです。
 漫画画像を読んでストーリーを把握し、8行のテロップ台本を生成します。
 
 【ルール】
@@ -162,7 +157,7 @@ def generate_content(manga_title, affiliate_url, image_b64, image_type, experien
 - VOICEVOXで読み上げるので自然な日本語で"""
 
     if experience_rules:
-        system += f"\n\n【改善ルール】\n{experience_rules}"
+        system_prompt += f"\n\n【改善ルール】\n{experience_rules}"
 
     user_text = f"""漫画タイトル: {manga_title}
 アフィリエイトURL: {affiliate_url or "（未設定）"}
@@ -184,49 +179,44 @@ JSONのみ出力（説明不要）:
   ]
 }}"""
 
-    user_content = []
-    if image_b64:
-        user_content.append({
-            "type": "image",
-            "source": {"type": "base64", "media_type": image_type, "data": image_b64},
-        })
-    user_content.append({"type": "text", "text": user_text})
+    tmp_img = None
+    try:
+        if image_b64:
+            ext = (image_type or "image/jpeg").split("/")[-1].replace("jpeg", "jpg")
+            fd, tmp_img = tempfile.mkstemp(suffix=f".{ext}")
+            os.close(fd)
+            with open(tmp_img, "wb") as f:
+                f.write(base64.b64decode(image_b64))
+            prompt = f"画像ファイル {tmp_img} を読んでテロップ台本を生成してください。\n\n{user_text}"
+            cmd = [
+                "claude", "-p",
+                "--system-prompt", system_prompt,
+                "--add-dir", os.path.dirname(tmp_img),
+                "--allowedTools", "Read",
+                prompt,
+            ]
+        else:
+            cmd = ["claude", "-p", "--system-prompt", system_prompt, user_text]
 
-    payload = {
-        "model":      MODEL,
-        "max_tokens": 1000,
-        "system":     system,
-        "messages":   [{"role": "user", "content": user_content}],
-    }
-
-    body = json.dumps(payload).encode()
-    req = urllib.request.Request(
-        "https://api.anthropic.com/v1/messages", data=body, method="POST",
-        headers={
-            "x-api-key":         ANTHROPIC_API_KEY,
-            "anthropic-version": "2023-06-01",
-            "content-type":      "application/json",
-        })
-
-    with urllib.request.urlopen(req) as res:
-        resp = json.loads(res.read())
-
-    text  = resp["content"][0]["text"].strip()
-    usage = resp.get("usage", {})
-    in_tok  = usage.get("input_tokens", 0)
-    out_tok = usage.get("output_tokens", 0)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        if result.returncode != 0:
+            raise RuntimeError(f"claude failed (exit {result.returncode}): {result.stderr[:200]}")
+        text = result.stdout.strip()
+    finally:
+        if tmp_img and os.path.exists(tmp_img):
+            os.unlink(tmp_img)
 
     m = re.search(r"```json\s*(.*?)\s*```", text, re.DOTALL)
     json_text = m.group(1) if m else re.search(r"\{.*\}", text, re.DOTALL).group(0)
-    return json.loads(json_text), in_tok, out_tok
+    return json.loads(json_text), 0, 0
 
 
 def calc_cost(in_tok, out_tok):
-    return (in_tok * PRICE_INPUT_PER_M + out_tok * PRICE_OUTPUT_PER_M) / 1_000_000
+    return 0.0
 
 
 def main():
-    missing = [k for k in ["ANTHROPIC_API_KEY", "NOTION_TOKEN", "NOTION_CONTENT_DB_ID"]
+    missing = [k for k in ["NOTION_TOKEN", "NOTION_CONTENT_DB_ID"]
                if not os.environ.get(k)]
     if missing:
         print(f"[queue-processor] 環境変数未設定: {', '.join(missing)}")
