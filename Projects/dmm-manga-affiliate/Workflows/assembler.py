@@ -124,10 +124,10 @@ def parse_telops(script_text: str) -> list:
         line = line.strip()
         if not line:
             continue
-        # 「」を除去してから先頭の番号を削除（「①...」形式に対応）
+        # 「」除去 → "N." 除去 → 丸数字除去（"1. ①テキスト" 形式に対応）
         text = line.replace("「", "").replace("」", "").strip()
-        text = re.sub(r'^[①-⑳]', '', text).strip()
         text = re.sub(r'^\d+\.\s*', '', text).strip()
+        text = re.sub(r'^[①-⑳]', '', text).strip()
         lines.append(text)
     return lines[:8]
 
