@@ -3,9 +3,8 @@
 STEP 3: Notionキュー（status:queued）を処理
   - 画像をDiscord CDNからダウンロードしてbase64変換
   - Claude APIで8行テロップ形式の台本を生成
-  - Notionをstatus:draftに更新 + api_cost_estimate記録
-
-Mac launchd で30分おき自動実行
+  - Notionをstatus:draftに更新
+  - タスク確認ボードに「👀 確認待ち」で登録
 """
 import base64, json, os, re, sys, urllib.request, urllib.error
 from datetime import datetime
@@ -14,6 +13,7 @@ from pathlib import Path
 ANTHROPIC_API_KEY    = os.environ.get("ANTHROPIC_API_KEY", "")
 NOTION_TOKEN         = os.environ.get("NOTION_TOKEN", "")
 NOTION_CONTENT_DB_ID = os.environ.get("NOTION_CONTENT_DB_ID", "")
+NOTION_TASK_BOARD_ID = "3671cad4aa98813b85b2ed9e3127b913"
 NOTION_VERSION       = "2022-06-28"
 MODEL                = "claude-sonnet-4-6"
 
@@ -78,7 +78,7 @@ def update_to_draft(page_id, content, cost_usd):
     blocks = [
         {"object": "block", "type": "callout",
          "callout": {
-             "rich_text": rt("内容を確認してOKならチェックを入れてください → assemblerが動画を組み立てます"),
+             "rich_text": rt("タスク確認ボードで確認してOKなら承認してください"),
              "icon": {"emoji": "📋"},
          }},
         {"object": "block", "type": "heading_2",
@@ -86,7 +86,7 @@ def update_to_draft(page_id, content, cost_usd):
         {"object": "block", "type": "paragraph",
          "paragraph": {"rich_text": rt(content["youtube_title"])}},
         {"object": "block", "type": "heading_2",
-         "heading_2": {"rich_text": rt("📝 テロップ8行（各15文字以内）")}},
+         "heading_2": {"rich_text": rt("📝 テロップ8行")}},
     ]
     for i, line in enumerate(content["telops"], 1):
         blocks.append({
@@ -105,6 +105,23 @@ def update_to_draft(page_id, content, cost_usd):
          }},
     ]
     notion("PATCH", f"/blocks/{page_id}/children", {"children": blocks})
+
+
+def register_to_task_board(manga_title, telops, notion_url, cost_usd):
+    """台本完成をタスク確認ボードに「👀 確認待ち」で登録"""
+    today = datetime.now().strftime("%Y-%m-%d")
+    telop_text = "\n".join([f"{i+1}. {l}" for i, l in enumerate(telops)])
+    notion("POST", "/pages", {
+        "parent": {"database_id": NOTION_TASK_BOARD_ID},
+        "properties": {
+            "タスク名":           {"title": rt(f"[台本確認] {manga_title}")},
+            "プロジェクト名":     {"select": {"name": "DMM漫画アフィリエイト"}},
+            "ステータス":         {"select": {"name": "👀 確認待ち"}},
+            "作成物":             {"rich_text": rt(telop_text)},
+            "内容要約":           {"rich_text": rt(f"コスト: ${cost_usd:.4f} / 詳細: {notion_url}")},
+            "提出日時":           {"date": {"start": today}},
+        }
+    })
 
 
 def fetch_image_b64(url):
@@ -138,7 +155,7 @@ def generate_content(manga_title, affiliate_url, image_b64, image_type, experien
 
 【ルール】
 - テロップは体言止め・各15文字以内
-- ①〜⑧の順で、ストーリーの流れに沿って
+- ①〜⑧の順でストーリーの流れに沿って
 - 冒頭①②は主人公の状況・感情（フック）
 - ③〜⑥は展開・山場
 - ⑦⑧は結末・余韻（続きが気になる終わり方）
@@ -248,7 +265,11 @@ def main():
         print(f"  テロップ: {len(content['telops'])}行  コスト: ${cost:.4f}")
 
         update_to_draft(props["page_id"], content, cost)
+
+        notion_url = f"https://app.notion.com/p/{props['page_id'].replace('-', '')}"
+        register_to_task_board(props["manga_title"], content["telops"], notion_url, cost)
         print(f"  Notion: queued -> draft OK")
+        print(f"  タスク確認ボード: 登録OK")
 
     print(f"\n[queue-processor] 完了  合計コスト: ${total_cost:.4f}")
 
