@@ -198,9 +198,13 @@ JSONのみ出力（説明不要）:
             stdin_prompt = user_text
             cmd = ["claude", "-p", "--system-prompt", system_prompt]
 
+        print(f"  [debug] cmd: {cmd}")
         result = subprocess.run(cmd, input=stdin_prompt, capture_output=True, text=True, timeout=120)
+        print(f"  [debug] returncode: {result.returncode}")
+        print(f"  [debug] stdout: {result.stdout[:500]!r}")
+        print(f"  [debug] stderr: {result.stderr[:500]!r}")
         if result.returncode != 0:
-            raise RuntimeError(f"claude failed (exit {result.returncode}): {result.stderr[:200]}")
+            raise RuntimeError(f"claude failed (exit {result.returncode})")
         text = result.stdout.strip()
     finally:
         if tmp_img and os.path.exists(tmp_img):
