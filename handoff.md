@@ -1,182 +1,102 @@
 ---
 type: handoff
 title: 次チャットへの引き継ぎ
-updated: 2026-06-05
+updated: 2026-06-10
 ---
 
-# 引き継ぎ — AI-Brain セッション 2026-06-05
+# ⚠️ 最重要ルール（毎回必ず読む）
 
-このファイルを次のチャットの冒頭に貼り付けて使う。
+## コスト判断基準
+APIコスト不要な作業（SSH/curl/git/ファイル操作/Notion API）
+  → Claude.aiから直接Macターミナルに指示
 
----
+APIコスト発生する作業（台本生成/画像解析/テキスト生成）
+  → Claude.aiからClaude Codeターミナルに指示（サブスク内・追加課金ゼロ）
 
-## システム全体像（確定版）
-
-```
-tagishi
-  └─ Discord に投げるだけ
-       │
-       ├─ #inbox           タスク・指示・メモ / YouTube・Instagram URL分析
-       ├─ #dmm-素材投稿    漫画コマ画像 + タイトル + アフィURL
-       └─ #通知            VPS実行結果・Bot返信（読み取り専用）
-            │
-            ├─ API不要 → VPS Bot 即実行 → #通知 or #inbox にリプライ
-            └─ API必要 → Notionキュー（queued） → Mac定時処理（30分おき）
-```
-
-**原則: tagishiはDiscordに投げるだけ。GitHubキュー・ファイルInbox廃止。**
+## 絶対禁止
+- Anthropic APIを直接HTTPリクエストで叩くスクリプトをサイレントで実装しない
+- コスト発生の可能性がある実装は必ず事前にtagishiに確認する
+- この確認を怠ったことで2026-06-10に無断コスト発生の実装をしてしまった
 
 ---
 
-## Discord チャンネル一覧（確定）
+# システム構成
 
-| チャンネル | ID | Bot |
-|---|---|---|
-| `#inbox` | `1511214415611953214` | discord-inbox-bot ✅ |
-| `#dmm-素材投稿` | `1511211307788144650` | dmm-discord-watcher ✅ |
-| `#通知` | `1511214417990254664` | 出力専用 |
+## 三層アーキテクチャ
+Claude.ai（戦略・指示）
+  ↓ APIコスト不要 → Macターミナルに直接指示
+  ↓ APIコスト発生 → Claude Codeターミナルに指示
+Mac Claude Code（判断・生成）← サブスクリプション・追加課金ゼロ
+  ↓
+ConoHa VPS 133.88.117.175（実行・APIゼロ）
 
----
+## Discord
+#inbox          ID: 1511214415611953214
+#dmm-素材投稿   ID: 1511211307788144650
+#通知           ID: 1511214417990254664
 
-## VPS 稼働中サービス（全8本）
-
-| サービス | 内容 | 状態 |
-|---|---|---|
-| `ai-brain-sync.timer` | 30分ごとVault→GitHub同期 | ✅ |
-| `ai-brain-memory-monitor.timer` | メモリ監視・800MB超でDiscord通知 | ✅ |
-| `ai-brain-auth-monitor.timer` | 5分ごと認証エラー検出・自己修復 | ✅ |
-| `ai-brain-morning-report.timer` | 毎朝8時 Discord日次レポート | ✅ |
-| `ai-brain-discord-responder.service` | 旧Bot（後で統合予定） | ✅ |
-| `ai-brain-dmm-discord-watcher.service` | `#dmm-素材投稿`監視→Notionキュー | ✅ |
-| `ai-brain-discord-inbox-bot.service` | `#inbox`ルーター・URL分析 | ✅ |
-| `fishing-platform.service` | 釣りマップAPI (uvicorn port 8080) | ✅ |
-
-**VPS メモリ（2026-06-05確認）:** 586MB / 1.9GB 使用 、1.3GB 利用可能、Swap未使用
+## VPS
+SSH: ssh -i ~/.ssh/conoha_vps root@133.88.117.175
+パス: /opt/ai-brain/
 
 ---
 
-## Mac launchd ジョブ（自動実行）
+# dmm-manga-affiliate 現在の状態
 
-| ジョブ | スケジュール | 役割 |
-|---|---|---|
-| `com.ai-brain.queue-processor` | 30分おき | Notion queued → Claude API台本生成 → draft |
-| `com.ai-brain.canva-instructions` | 30分おき | Notion approved → Canva配置指示 → canva_pending |
-| `com.ai-brain.mac-config-sync` | 毎日3:00 | ~/.zshrc をマスクしてVaultに保存 |
-| `com.ai-brain.sync-youtube-cookies` | 毎週月曜3:00 | youtube-cookies.txt をVPSに転送 |
+## Canvaテンプレート
+デザインID: DAHKogY0SBo（②ナレーション・10ページ）
 
----
+ページ構成:
+  ページ1:  導入（③行目のみ漫画タイトルに書き換え）
+  ページ2〜9: コマ画像（ズーム済み）+ テロップ1行
+  ページ10: エンド固定
 
-## 🆕 fishing-platform — 今日の作業まとめ（2026-06-05）
+element_id:
+  タイトル③: PBs1sTlCLqHDSG14-LBrqdhnZYLPRPyJX
+  テロップ①: PBG3BLhBZW05Kb0W-LBhlvQNP9s6Wmwvr
+  テロップ②: PBCSwpnm9S6QVHtJ-LBff234VHn89xWtW
+  テロップ③: PBjDNccpBqWtybYQ-LBxsBSg503sFyjyQ
+  テロップ④: PBvxHVxQT8c46KWb-LBHJq4nGtPjjtjnV
+  テロップ⑤: PBw7ntJLPN1YXxv3-LB7D7v0gRPY16KGC
+  テロップ⑥: PBwNd5vms7mw2gXb-LBg46mQW7DYvYrS2
+  テロップ⑦: PBkLftpwjtcRJDvs-LB2Dj8TSWKB0CnvR
+  テロップ⑧: PBpYZmnGCfCLdFFC-LBzvFjt040LjCkN6
+  画像スロット(p2): PBG3BLhBZW05Kb0W-LBLG8GxWtKLtPZcZ
 
-**URL:** http://133.88.117.175  
-**VPS パス:** `/opt/ai-brain/Projects/fishing-platform/app/`
+## 画像フロー（確定）
+Discord CDN → VPS(webp→PNG変換) → tmpfiles.org → Canva upload → スロット差し込み
+コマズーム: update_fill + resize_element + position_element
+漫画サイズ: 1000x1399px、2列3行、スロット: 954x837px
 
-### 完了した変更（全コミット済み・デプロイ済み）
+## Notion DB
+コンテンツ審査DB: 3731cad4aa98810e82f8c0f99a483cbb
+タスク確認ボード: 3671cad4aa98813b85b2ed9e3127b913
+ステータス: 👀 確認待ち / 🔄 作成中 / ✅ 確認済み
 
-| # | 内容 | コミット |
-|---|---|---|
-| 1 | ヒートマップ全点赤バグ修正（OSM街灯スタッキング→max化・65点キャップ） | d75da7a |
-| 2 | 関東全域ヒートマップ（viewport bounds渡し・半径制限撤廃・moveend自動更新） | d019f48 |
-| 3 | ヒートマップ色濃化・タイル方式（pad±0.02°・canvas opacity 0.92） | f81d3c6 |
-| 4 | ポリゴン方式導入（natural=water岸→中央グラデーション点列） | 554a640 |
-| 5 | Overpass廃止→SQLite中心線からポリゴン生成 | bb74f8d |
-| 6 | kanto_rivers.geojson（2.2MB・4476ポリゴン）をローカルから取得して静的配置 | 28f4d46 |
-| 7 | ズームボタン5段階（right:70px・黒背景60%透過・白文字・🗾z8/z10/z13/z15/z17） | 28f4d46 |
-| 8 | サーモグラフィー配色（青→水色→緑→黄緑→黄→橙→赤）・期間フィルター削除 | bdb322c |
-| 9 | **SW v3更新（グラデーション未反映の根本修正）**・静的JSON化・ptトースト削除 | edb891d |
-
-### 技術的決断と学び
-
-| 件 | 内容 |
-|---|---|
-| Overpassタイムアウト | `natural=water`+`out geom`は東京圏でも55秒以上かかる。ローカルから取得→静的GeoJSON方式に切り替え |
-| SW stale-while-revalidate | キャッシュバージョン更新（v2→v3）しないと新コードが反映されない。グラデーション未反映の根本原因だった |
-| 釣具店Overpass廃止 | `/data/tackle_shops.json`（18件）から即座読み込みに統一 |
-| 遊漁船 | `/data/boats.json`（10件）から読み込み・BOATS_DATA定数廃止 |
-
-### 現在のヒートマップ構造
-
-```
-ブラウザ → /api/heatmap → get_river_heatmap()
-              ↓
-          get_water_polygon_data() ← SQLite osm_rivers (26,282件)
-              ↓
-          _centerline_to_polygon() ← 川幅推定してポリゴン生成
-              ↓
-          _build_shore_gradient_points()
-              ↓ 点列（スコア0.07〜0.92）
-          Canvas サーモグラフィー描画
-          scoreToRgb: 0.15未満=透明 → 深青→水色→緑→黄緑→黄→橙→赤
-```
-
-### 静的データファイル
-
-| ファイル | 中身 | パス |
-|---|---|---|
-| `kanto_rivers.geojson` | 4,476水域ポリゴン（2.2MB） | `/static/data/` |
-| `tackle_shops.json` | 釣具店18件 | `/static/data/` |
-| `boats.json` | 遊漁船10件 | `/static/data/` |
+## VPSスクリプト
+manga-crop.py: /opt/ai-brain/Projects/dmm-manga-affiliate/Workflows/
 
 ---
 
-## 🆕 fishing-platform — 次のアクション
+# 次にやること（優先順）
 
-1. **http://133.88.117.175 を実機確認（最優先）**
-   - `🌡 ヒートマップ` ON → 岸=赤橙・中央=青のサーモグラフィーが出るか
-   - 釣具店・遊漁船が即座に表示されるか（Overpass検索なし）
-   - ズームボタン右端70pxに表示されるか
-   - SW v3が当たってブラウザキャッシュがクリアされているか（Ctrl+F5 or Dev Toolsで確認）
+## 1. queue-processor.py修正（最優先）
+問題: Anthropic APIを直接叩いている → クレジット必要
+修正: Claude Codeのサブプロセス呼び出しに変更 → 追加課金ゼロ
+場所: ~/Desktop/ClaudeProjects/AI-Brain/Projects/dmm-manga-affiliate/Workflows/queue-processor.py
+作業: Claude Codeターミナルで「generate_content関数をclaudeコマンド経由に変更」
 
-2. **Phase 5 開始判断**（tagishiの確認後）
-   - 月額480円課金（Stripe）
-   - 釣りブログ自動更新（SEO）
-   - B2Bデータ販売
-   - 遊漁船DB本格化（手数料5〜10%）
+## 2. assembler.py実装
+Notionのapprovedページを取得して以下を自動実行:
+  1. テンプレ(DAHKogY0SBo)をコピーして新デザイン作成
+  2. タイトル書き換え（ページ1・③行目）
+  3. 漫画画像を各ページに差し込み（ズーム付き）
+  4. テロップ8行を書き換え
+  5. VOICEVOXでめたん(speaker=2)の音声生成
+  6. Canva URLをNotionに記録
+  7. タスク確認ボードに「👀 確認待ち」+ Canva URL登録
 
----
-
-## dmm-manga-affiliate パイプライン状況
-
-**Notion DB:** `NOTION_CONTENT_DB_ID=3731cad4aa98810e82f8c0f99a483cbb`
-
-**ステータス遷移:**
-```
-queued → draft → approved → canva_pending → canva_ready → final → uploaded
-  ↑         ↑        ↑            ↑              ↑           ↑        ↑
-VPS Bot  Mac定時  tagishi     Mac定時          VPS       tagishi  VPS投稿
-(済み)   (済み)            (済み)           (未実装)            (未実装)
-```
-
-**次にやること（dmm-manga-affiliate）:**
-1. 4バリエーション対応に queue-processor.py を改修（1素材→4本）
-2. Notion DBにアカウント管理フィールド追加（account_id・variant_num・source_group_id）
-3. dmm-canva-assembler.py 実装（STEP 6: canva_pending → canva_ready）
-
----
-
-## 認証情報・重要パス
-
-| 項目 | 値 |
-|---|---|
-| VPS SSH | `ssh -i ~/.ssh/conoha_vps root@133.88.117.175` |
-| VPS パス | `/opt/ai-brain/` |
-| 認証情報 | `/opt/ai-brain/.credentials/tokens.md`（chmod 600） |
-| GitHub リポジトリ | `coretagishi-lab/claude-brain`（main ブランチ） |
-| Notion Outbox DB | `36f1cad4-aa98-81fb-93d8-d40bfb95cff9` |
-| Notion コンテンツ審査DB | `3731cad4aa98810e82f8c0f99a483cbb` |
-| Vault ローカル | `~/Desktop/ClaudeProjects/AI-Brain/` |
-| 釣りマップ | http://133.88.117.175 |
-
----
-
-## セッション開始チェックリスト
-
-```bash
-# 1. VPS待機タスク確認（最優先）
-python3 Shared/Workflows/vps-task-checker.py
-
-# 2. Inboxキュー確認
-python3 Shared/Workflows/queue.py status
-
-# 3. このファイルを読んだ → 作業開始
-```
+## 3. 本番フロー
+Discord漫画投稿 → queue-processor → タスク確認ボードに台本届く
+→ tagishi確認・approved → assembler → タスク確認ボードにCanva URL届く
+→ tagishi確認・承認 → YouTube投稿
