@@ -55,3 +55,49 @@ queued → draft → approved → canva_pending → canva_ready → final → up
 VPS Bot  Mac定時  tagishi     Mac定時          VPS       tagishi  VPS投稿
 (済み)   (済み)            (済み)           (未実装)            (未実装)
 ```
+
+---
+## 2026-06-10 セッション記録
+
+### 確定した技術スタック
+- テンプレート: DAHKogY0SBo（②ナレーション・10ページ構成）
+- 画像フロー: Discord CDN → VPS(PNG変換) → tmpfiles.org → Canva upload → スロット差し込み
+- テキスト書き換え: Canva MCP `replace_text` で element_id 指定
+- 画像ズーム: `update_fill` + `resize_element` + `position_element` の組み合わせ
+- コマ座標計算: 漫画1000×1399px、2列3行、スロット954×837px
+
+### ページ構成（確定）
+- ページ1: 導入（タイトル・煽り）→ ③行目のみ漫画タイトルに書き換え
+- ページ2〜9: コマ画像 + テロップ1行（台本①〜⑧）
+- ページ10: エンド固定
+
+### element_id マッピング
+タイトル3行目: PBs1sTlCLqHDSG14-LBrqdhnZYLPRPyJX（「男の漫画」）
+テロップ①: PBG3BLhBZW05Kb0W-LBhlvQNP9s6Wmwvr
+テロップ②: PBCSwpnm9S6QVHtJ-LBff234VHn89xWtW
+テロップ③: PBjDNccpBqWtybYQ-LBxsBSg503sFyjyQ
+テロップ④: PBvxHVxQT8c46KWb-LBHJq4nGtPjjtjnV
+テロップ⑤: PBw7ntJLPN1YXxv3-LB7D7v0gRPY16KGC
+テロップ⑥: PBwNd5vms7mw2gXb-LBg46mQW7DYvYrS2
+テロップ⑦: PBkLftpwjtcRJDvs-LB2Dj8TSWKB0CnvR
+テロップ⑧: PBpYZmnGCfCLdFFC-LBzvFjt040LjCkN6
+画像スロット（ページ2）: PBG3BLhBZW05Kb0W-LBLG8GxWtKLtPZcZ
+
+### 次のフロー（確定）
+1. Discordに漫画4ページ投稿（タイトル・アフィURL付き）
+2. queue-processor.py が台本生成 → Notionにdraft
+   - 出力形式: ①〜⑧の8行テロップ（1テロップ=文字数上限TBD）
+3. tagishiがNotionで確認・チェックOK → approved
+4. assembler.pyがCanva動画組み立て
+   - テンプレコピー → タイトル書き換え → コマ画像差し込み(ズーム付き) → テロップ書き換え
+   - VOICEVOXはデフォルト四国めたん(speaker=2)で生成
+5. Canva URLをNotionに返す → tagishiが確認
+6. ナレーター変更指示があれば対応可能な設計にする
+
+### 未決定事項
+- 1テロップ何文字まで（tagishiが実際のデザインを見て決める）
+- VOICEVOXキャラ（デフォルト=めたん、後から変更可）
+
+### VPS確認済みスクリプト
+- manga-crop.py: /opt/ai-brain/Projects/dmm-manga-affiliate/Workflows/
+- 画像アップロード: tmpfiles.org経由（HTTPS、curl対応）
