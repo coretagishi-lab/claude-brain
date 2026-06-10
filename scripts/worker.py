@@ -30,6 +30,11 @@ TMUX_CLAUDE_WIN  = "claude"
 POLL_INTERVAL    = 30   # seconds
 CLAUDE_TIMEOUT   = 180  # seconds per job
 
+# 送信済みページID（セッション中に再送しない）
+# 成功時: Notion status が "draft" になるので自然に queued クエリから外れる
+# 失敗時: _in_flight に残すことで連続再送を防ぐ（手動でNotionを修正して再試行）
+_in_flight: set = set()
+
 
 # ── Notion ────────────────────────────────────────────────────────────────
 def notion(method, path, data=None):
@@ -242,26 +247,52 @@ JSONのみ出力してください（説明文・前置き不要）:
 
 
 # ── ポーリングループ ────────────────────────────────────────────────────────
+def _ts():
+    return datetime.now().strftime("%H:%M")
+
+
 def poll_and_dispatch():
     """
-    1サイクル分の処理。新しいジョブを追加するときはここに追記する。
+    1サイクル1件処理。送信済みページは _in_flight でスキップ。
+    新しいジョブを追加するときはここに追記する。
 
-    例:
+    追加例:
       for page in get_approved_pages():
-          job_assemble_video(extract_props(page))
+          _dispatch(page, job_assemble_video)
     """
-    # ジョブ1: queued → テロップ台本生成
-    pages = get_queued_pages()
-    if pages:
-        print(f"\n[{datetime.now().strftime('%H:%M')}] queued: {len(pages)}件")
-        for page in pages:
-            props = extract_props(page)
-            print(f"  処理中: {props['manga_title'] or '(タイトル未設定)'}")
-            job_generate_script(props)
+    # ジョブ1: queued → テロップ台本生成（1サイクルで最大1件）
+    all_queued = get_queued_pages()
+    pending = [p for p in all_queued if p["id"] not in _in_flight]
+
+    if not pending:
+        skipped = len(all_queued) - len(pending)
+        skip_msg = f" ({skipped}件は送信済みのためスキップ)" if skipped else ""
+        print(f"[{_ts()}] queued: 0{skip_msg} | 次回: {POLL_INTERVAL}s後")
+        return
+
+    # 1件取り出して処理（残りは次サイクル）
+    page = pending[0]
+    props = extract_props(page)
+    remaining = len(pending) - 1
+
+    print(f"\n[{_ts()}] 処理開始: {props['manga_title'] or '(タイトル未設定)'}"
+          f"{f'  (残り {remaining}件)' if remaining else ''}")
+
+    # 送信前に _in_flight へ登録（失敗時も再送しない）
+    _in_flight.add(props["page_id"])
+    try:
+        job_generate_script(props)
+    except Exception as e:
+        print(f"  [ERROR] {props['manga_title']}: {e}")
+        # _in_flight に残す → 今セッション中は再試行しない
+        # 再試行したい場合は brain-worker を再起動する
 
     # ジョブ2（将来）: approved → 動画組み立て
     # for page in get_approved_pages():
-    #     job_assemble_video(extract_props(page))
+    #     if page["id"] not in _in_flight:
+    #         _in_flight.add(page["id"])
+    #         job_assemble_video(extract_props(page))
+    #         break  # 1サイクル1件
 
     # ジョブ3（将来）: 週次アナリティクス
     # job_weekly_analytics()
@@ -284,12 +315,7 @@ def main():
             print("\n[brain-worker] 停止")
             break
         except Exception as e:
-            print(f"[{datetime.now().strftime('%H:%M')}] [ERROR] {e}")
-
-        # queued が 0 件のときだけ待機ログを出す
-        pages = get_queued_pages()
-        if not pages:
-            print(f"[{datetime.now().strftime('%H:%M')}] queued: 0 | 次回確認まで {POLL_INTERVAL}s")
+            print(f"[{_ts()}] [ERROR] {e}")
 
         time.sleep(POLL_INTERVAL)
 
