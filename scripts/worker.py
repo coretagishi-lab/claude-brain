@@ -28,6 +28,8 @@ NOTION_TOKEN         = os.environ.get("NOTION_TOKEN", "")
 NOTION_CONTENT_DB_ID = os.environ.get("NOTION_CONTENT_DB_ID", "")
 NOTION_TASK_BOARD_ID = "3671cad4aa98813b85b2ed9e3127b913"
 NOTION_VERSION       = "2022-06-28"
+DISCORD_WEBHOOK_URL  = os.environ.get("DISCORD_WEBHOOK_URL", "")
+JPY_PER_USD          = 155
 
 VAULT           = Path(__file__).resolve().parent.parent
 EXPERIENCE_FILE = VAULT / "Projects" / "dmm-manga-affiliate" / "Knowledge" / "experience.md"
@@ -91,14 +93,17 @@ def extract_props(page):
     }
 
 
-def update_to_draft(page_id, content):
+def update_to_draft(page_id, content, cost_usd: float):
+    jpy = int(cost_usd * JPY_PER_USD)
+    cost_str = f"¥{jpy}円（${cost_usd:.4f}）消費 / 残高 $10.00から逆算"
     script_text = "\n".join(f"{i+1}. {l}" for i, l in enumerate(content["telops"]))
     notion("PATCH", f"/pages/{page_id}", {"properties": {
         "status":            {"select":    {"name": "draft"}},
         "youtube_title":     {"rich_text": rt(content["youtube_title"])},
         "description":       {"rich_text": rt(content["description"])},
         "script":            {"rich_text": rt(script_text)},
-        "api_cost_estimate": {"rich_text": rt("claude Code (無料)")},
+        "api_cost_estimate": {"rich_text": rt(cost_str)},
+        "フィードバック":     {"rich_text": rt("")},
     }})
     blocks = [
         {"object": "block", "type": "callout", "callout": {
@@ -121,8 +126,8 @@ def update_to_draft(page_id, content):
         {"object": "block", "type": "paragraph",
          "paragraph": {"rich_text": rt(content["description"])}},
         {"object": "block", "type": "callout", "callout": {
-            "rich_text": rt(f"生成: {datetime.now().strftime('%Y-%m-%d %H:%M')} | claude Code (無料)"),
-            "icon": {"emoji": "🤖"},
+            "rich_text": rt(f"生成: {datetime.now().strftime('%Y-%m-%d %H:%M')} | {cost_str}"),
+            "icon": {"emoji": "💰"},
         }},
     ]
     notion("PATCH", f"/blocks/{page_id}/children", {"children": blocks})
@@ -152,6 +157,69 @@ def load_experience_rules():
         rules = m.group(0).strip()
         return "" if "まだ蓄積なし" in rules else rules
     return ""
+
+
+def load_recent_feedback(limit: int = 5) -> str:
+    """draft ページのうち「フィードバック」フィールドが記入済みのものを取得する。"""
+    _, res = notion("POST", f"/databases/{NOTION_CONTENT_DB_ID}/query", {
+        "filter": {
+            "and": [
+                {"property": "status", "select": {"equals": "draft"}},
+                {"property": "フィードバック", "rich_text": {"is_not_empty": True}},
+            ]
+        },
+        "sorts":  [{"property": "created_at", "direction": "descending"}],
+        "page_size": limit,
+    })
+    pages = res.get("results", [])
+    if not pages:
+        return ""
+    lines = []
+    for page in pages:
+        def txt(k):
+            parts = page["properties"].get(k, {}).get("rich_text", [])
+            return "".join(p.get("plain_text", "") for p in parts)
+        title = txt("manga_title") or "(タイトル不明)"
+        fb    = txt("フィードバック")
+        if fb:
+            lines.append(f"- 「{title}」: {fb}")
+    if not lines:
+        return ""
+    return "## 過去のフィードバック（参考）\n" + "\n".join(lines)
+
+
+def estimate_cost(prompt: str, output: str) -> float:
+    """
+    文字数からトークン数を推計してコストを計算する（概算）。
+    日英混在テキスト: 約1.5文字 = 1トークン。
+    claude-sonnet-4-6 料金: 入力 $3 / 出力 $15 (per million tokens)。
+    """
+    in_tok  = len(prompt) / 1.5
+    out_tok = len(output) / 1.5
+    return (in_tok * 3.0 + out_tok * 15.0) / 1_000_000
+
+
+def notify_discord(manga_title: str, notion_url: str, cost_jpy: int):
+    """台本完成を Discord #通知 チャンネルに webhook で通知する。"""
+    if not DISCORD_WEBHOOK_URL:
+        log("  ℹ️  DISCORD_WEBHOOK_URL 未設定のため通知スキップ")
+        return
+    body = json.dumps({
+        "content": (
+            f"✅ 台本完成: {manga_title}\n"
+            f"👀 確認: {notion_url}\n"
+            f"💰 消費: ¥{cost_jpy}円"
+        )
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        DISCORD_WEBHOOK_URL, data=body, method="POST",
+        headers={"Content-Type": "application/json"}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10):
+            pass
+    except Exception as e:
+        log(f"  ⚠️  Discord通知失敗: {e}")
 
 
 # ── Claude サブプロセス ───────────────────────────────────────────────────
@@ -194,15 +262,22 @@ def extract_json(text: str) -> dict:
 # ── ジョブ定義 ─────────────────────────────────────────────────────────────
 def job_generate_script(props: dict) -> bool:
     """queued ページのテロップ台本を生成して Notion に draft 登録する。"""
-    rules = load_experience_rules()
-    rules_section = f"\n\n## 改善ルール\n{rules}" if rules else ""
+    rules           = load_experience_rules()
+    recent_feedback = load_recent_feedback()
+
+    rules_section    = f"\n\n## 改善ルール（experience.mdより）\n{rules}" if rules else ""
+    feedback_section = f"\n\n{recent_feedback}" if recent_feedback else ""
 
     prompt = f"""以下の漫画作品のYouTube Shorts用テロップ台本を生成してください。
 
 ## テロップルール
 - 体言止め・各15文字以内
-- ①〜⑧でストーリーの流れ: ①②フック → ③〜⑥展開・山場 → ⑦⑧結末・余韻
-- VOICEVOXで読み上げるので自然な日本語{rules_section}
+- トーン: 短編CM・短編小説風。見ている人がドキドキするような内容にする
+- 直接的な性表現・官能的な言葉はNG（YouTube規約に引っかかるため絶対禁止）
+- 間接的に「エッチな雰囲気」が伝わる表現にする
+  例: 「秘密の関係」「禁断の夜」「熱い視線」「触れたい衝動」「甘い罠」
+- ①〜⑧でストーリーの流れ: ①②フック → ③〜⑥展開・山場 → ⑦⑧結末（続きが読みたくなる余韻）
+- VOICEVOXで読み上げるので自然な日本語{rules_section}{feedback_section}
 
 ## 入力
 - 漫画タイトル: {props['manga_title']}
@@ -217,13 +292,17 @@ def job_generate_script(props: dict) -> bool:
 }}
 ```"""
 
-    raw = invoke_claude(prompt)
-    content = extract_json(raw)
+    raw      = invoke_claude(prompt)
+    content  = extract_json(raw)
+    cost_usd = estimate_cost(prompt, raw)
+    cost_jpy = int(cost_usd * JPY_PER_USD)
 
-    update_to_draft(props["page_id"], content)
+    update_to_draft(props["page_id"], content, cost_usd)
     notion_url = f"https://app.notion.com/p/{props['page_id'].replace('-', '')}"
     register_to_task_board(props["manga_title"], content["telops"], notion_url)
-    log(f"  ✅ {props['manga_title']} → draft 登録完了")
+    notify_discord(props["manga_title"], notion_url, cost_jpy)
+
+    log(f"  ✅ {props['manga_title']} → draft 登録完了 (¥{cost_jpy}円 / ${cost_usd:.4f})")
     return True
 
 
