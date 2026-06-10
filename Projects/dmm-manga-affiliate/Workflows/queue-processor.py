@@ -187,18 +187,18 @@ JSONのみ出力（説明不要）:
             os.close(fd)
             with open(tmp_img, "wb") as f:
                 f.write(base64.b64decode(image_b64))
-            prompt = f"画像ファイル {tmp_img} を読んでテロップ台本を生成してください。\n\n{user_text}"
+            stdin_prompt = f"画像ファイル {tmp_img} を読んでテロップ台本を生成してください。\n\n{user_text}"
             cmd = [
                 "claude", "-p",
                 "--system-prompt", system_prompt,
                 "--add-dir", os.path.dirname(tmp_img),
                 "--allowedTools", "Read",
-                prompt,
             ]
         else:
-            cmd = ["claude", "-p", "--system-prompt", system_prompt, user_text]
+            stdin_prompt = user_text
+            cmd = ["claude", "-p", "--system-prompt", system_prompt]
 
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        result = subprocess.run(cmd, input=stdin_prompt, capture_output=True, text=True, timeout=120)
         if result.returncode != 0:
             raise RuntimeError(f"claude failed (exit {result.returncode}): {result.stderr[:200]}")
         text = result.stdout.strip()
