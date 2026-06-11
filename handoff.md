@@ -125,3 +125,20 @@ Discord漫画投稿 → queue-processor → タスク確認ボードに台本届
 - 起動方法: /Applications/VOICEVOX.app
 - assembler.py実行時だけ起動すればOK
 - デフォルトキャラ: 四国めたん（speaker=2）
+
+---
+
+## 2026-06-11 セッション途中状態
+
+### 完了
+- VOICEVOX→ffmpeg→catbox→Canva パイプライン実装済み
+- Canvaサブプロセスを2回に分割（タイムアウト対策）push済み
+
+### 次のアクション
+- NotionをapprovedにしてからMacのターミナルで実行:
+  cd ~/Desktop/ClaudeProjects/AI-Brain && git pull && source ~/.zshrc && source ~/.zprofile && python3 Projects/dmm-manga-affiliate/Workflows/assembler.py
+- 音声付き動画がCanvaに差し込まれるか確認
+- 確認できたらNotion設計変更に進む
+
+### Discord webhook 403エラー
+未修正。tokens.mdのURLが古い可能性あり。
