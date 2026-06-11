@@ -14,6 +14,7 @@ NOTION_TOKEN         = os.environ.get("NOTION_TOKEN", "")
 NOTION_CONTENT_DB_ID = os.environ.get("NOTION_CONTENT_DB_ID", "")
 NOTION_TASK_BOARD_ID = "3671cad4aa98813b85b2ed9e3127b913"
 NOTION_VERSION       = "2022-06-28"
+DISCORD_WEBHOOK_URL  = os.environ.get("DISCORD_WEBHOOK_URL", "")
 
 VAULT           = Path(__file__).resolve().parents[2]
 EXPERIENCE_FILE = VAULT / "Knowledge" / "experience.md"
@@ -117,6 +118,25 @@ def register_to_task_board(manga_title, telops, notion_url, cost_usd, page_id):
             "提出日時":           {"date": {"start": today}},
         }
     })
+
+
+def notify_discord(manga_title, page_id):
+    if not DISCORD_WEBHOOK_URL:
+        return
+    notion_url = f"https://app.notion.com/p/{page_id.replace('-', '')}"
+    body = json.dumps({
+        "content": f"✅ 台本生成完了：{manga_title} タスクボードで確認してください {notion_url}"
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        DISCORD_WEBHOOK_URL, data=body, method="POST",
+        headers={"Content-Type": "application/json"}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10):
+            pass
+        print(f"  Discord通知送信OK")
+    except Exception as e:
+        print(f"  ⚠️  Discord通知失敗: {e}")
 
 
 def fetch_image_b64(url):
@@ -278,6 +298,7 @@ def main():
         register_to_task_board(props["manga_title"], content["telops"], notion_url, cost, props["page_id"])
         print(f"  Notion: queued -> draft OK")
         print(f"  タスク確認ボード: 登録OK")
+        notify_discord(props["manga_title"], props["page_id"])
 
     print(f"\n[queue-processor] 完了  合計コスト: ${total_cost:.4f}")
 
