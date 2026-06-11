@@ -221,6 +221,14 @@ def voicevox_available() -> bool:
         return False
 
 
+def ffmpeg_available() -> bool:
+    try:
+        subprocess.run(["ffmpeg", "-version"], capture_output=True, check=True, timeout=5)
+        return True
+    except Exception:
+        return False
+
+
 def generate_voice(text: str, speaker: int = VOICEVOX_SPEAKER) -> bytes:
     """VOICEVOX で音声を生成して WAV バイト列を返す。"""
     # Step 1: audio_query
@@ -276,25 +284,76 @@ def generate_all_voices(manga_title: str, telops: list) -> Path:
     return out_dir
 
 
-def upload_all_audio(audio_dir: Path, telop_count: int) -> list:
+def wav_to_transparent_mp4(wav_path: Path) -> Path:
     """
-    audio_dir 内の telop_NN.wav を catbox.moe にアップロードし、
-    公開 URL のリストを返す（失敗時は空文字）。
+    WAV を 2x2px 黒フレーム + 音声トラックの MP4 に変換する。
+    Canva に insert_fill opacity=0 で差し込むことで映像は透明・音声のみ再生される。
+    """
+    mp4_path = wav_path.with_suffix(".mp4")
+    subprocess.run([
+        "ffmpeg", "-y",
+        "-f", "lavfi", "-i", "color=black:size=2x2:rate=1",
+        "-i", str(wav_path),
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-tune", "stillimage",
+        "-c:a", "aac", "-b:a", "128k",
+        "-shortest",
+        str(mp4_path),
+    ], capture_output=True, check=True, timeout=60)
+    return mp4_path
+
+
+def convert_all_to_mp4(audio_dir: Path, telop_count: int) -> list:
+    """audio_dir 内の telop_NN.wav を MP4 に変換し、Path リストを返す。"""
+    paths = []
+    for i in range(1, telop_count + 1):
+        wav = audio_dir / f"telop_{i:02d}.wav"
+        if not wav.exists():
+            paths.append(None)
+            continue
+        try:
+            mp4 = wav_to_transparent_mp4(wav)
+            paths.append(mp4)
+            log(f"  🎬 telop_{i:02d}.mp4 変換完了 ({mp4.stat().st_size // 1024}KB)")
+        except Exception as e:
+            log(f"  ⚠️  telop_{i:02d} MP4変換失敗: {e}")
+            paths.append(None)
+    return paths
+
+
+def upload_all_video(audio_dir: Path, mp4_paths: list) -> list:
+    """
+    MP4 ファイルを catbox.moe にアップロードし公開 URL リストを返す。
+    mp4_paths は convert_all_to_mp4() の戻り値（None は空文字に変換）。
     """
     urls = []
-    for i in range(1, telop_count + 1):
-        path = audio_dir / f"telop_{i:02d}.wav"
-        if not path.exists():
+    for i, mp4 in enumerate(mp4_paths, 1):
+        if mp4 is None or not mp4.exists():
             urls.append("")
             continue
         try:
-            url = upload_to_catbox(path.read_bytes(), "audio/wav")
+            url = upload_to_catbox(mp4.read_bytes(), "video/mp4")
             urls.append(url)
-            log(f"  📤 telop_{i:02d}.wav → {url}")
+            log(f"  📤 telop_{i:02d}.mp4 → {url}")
         except Exception as e:
-            log(f"  ⚠️  telop_{i:02d}.wav アップロード失敗: {e}")
+            log(f"  ⚠️  telop_{i:02d}.mp4 アップロード失敗: {e}")
             urls.append("")
     return urls
+
+
+def cleanup_media_files(audio_dir: Path):
+    """audio_dir 内の WAV / MP4 ファイルを削除し、空になったディレクトリも削除する。"""
+    if not audio_dir or not audio_dir.exists():
+        return
+    deleted = 0
+    for f in audio_dir.iterdir():
+        if f.suffix in (".wav", ".mp4"):
+            f.unlink()
+            deleted += 1
+    try:
+        audio_dir.rmdir()  # 空ならディレクトリごと削除
+    except OSError:
+        pass
+    log(f"  🗑  メディアファイル削除: {deleted}件 ({audio_dir.name})")
 
 
 # ── Claude サブプロセス: Canva MCP 操作 ───────────────────────────────────
@@ -319,7 +378,7 @@ def invoke_claude(prompt: str) -> str:
 
 
 def build_canva_prompt(props: dict, public_image_url: str, telops: list,
-                       audio_urls: list = None) -> str:
+                       video_urls: list = None) -> str:
     """Canva MCP 操作の詳細指示を作成する。"""
 
     telop_ops = "\n".join(
@@ -332,23 +391,25 @@ def build_canva_prompt(props: dict, public_image_url: str, telops: list,
         for i, t in enumerate(telops)
     )
 
-    audio_section = ""
-    if audio_urls and any(audio_urls):
-        audio_lines = "\n".join(
+    video_section = ""
+    if video_urls and any(video_urls):
+        video_lines = "\n".join(
             f"  ページ{i+2}: {url}" if url else f"  ページ{i+2}: （スキップ）"
-            for i, url in enumerate(audio_urls)
+            for i, url in enumerate(video_urls)
         )
-        audio_section = f"""
-## 手順 11: 音声をページに挿入（VOICEVOX 生成済み）
-各ページ（2〜9）に対応した WAV の公開 URL を以下に示します。
-各音声は前0.3秒・後0.5秒の無音を含みます。
+        video_section = f"""
+## 手順 11: 透明動画（VOICEVOX 音声）をページに差し込む
+各ページ（2〜9）に対応した MP4 の公開 URL を以下に示します。
+この MP4 は 2x2px の黒フレーム + VOICEVOX 音声トラックです。
+映像を opacity=0（完全透明）で差し込むことで音声のみ再生されます。
 
-{audio_lines}
+{video_lines}
 
-各音声の処理:
-1. `upload-asset-from-url` で WAV URL をアップロード → asset_id を取得
-2. `perform-editing-operations` で対応ページに音声を挿入
-   操作: add_audio (asset_id: <取得したasset_id>)
+各動画の処理:
+1. `upload-asset-from-url` で MP4 URL をアップロード → asset_id を取得
+2. `perform-editing-operations` で対応ページに差し込み:
+   操作: insert_fill (fill_type: VIDEO, asset_id: <asset_id>)
+3. 配置後に opacity を 0 に設定して透明化する
 """
 
     return f"""以下の手順で Canva デザインを組み立ててください。
@@ -440,16 +501,16 @@ STATUS=success
 エラーが発生した場合:
 STATUS=error
 ERROR=<エラーの詳細>
-{audio_section}"""
+{video_section}"""
 
 
 def run_canva_assembly(props: dict, public_image_url: str, telops: list,
-                       audio_urls: list = None) -> tuple:
+                       video_urls: list = None) -> tuple:
     """
     claude subprocess で Canva 組み立てを実行。
     Returns: (design_id, canva_url)
     """
-    prompt = build_canva_prompt(props, public_image_url, telops, audio_urls=audio_urls)
+    prompt = build_canva_prompt(props, public_image_url, telops, video_urls=video_urls)
     output = invoke_claude(prompt)
 
     design_id = ""
@@ -537,26 +598,32 @@ def process_page(props: dict, dry: bool = False) -> bool:
     else:
         log("  ℹ️  image_url なし → 画像挿入スキップ")
 
-    # ── VOICEVOX 音声生成 ─────────────────────────────────────────────────
-    audio_urls = None
+    # ── VOICEVOX 音声生成 + ffmpeg MP4変換 ───────────────────────────────
+    audio_dir  = None
+    video_urls = None
     if voicevox_available():
         log(f"  🎙 VOICEVOX 音声生成開始 (speaker={VOICEVOX_SPEAKER})")
         audio_dir = generate_all_voices(manga_title, [t for t in telops if t])
         log(f"  ✅ 音声保存先: {audio_dir}")
-        log(f"  📤 音声ファイルを catbox.moe にアップロード中...")
-        audio_urls = upload_all_audio(audio_dir, len(telops))
-        log(f"  ✅ 音声アップロード完了: {sum(1 for u in audio_urls if u)}/{len(telops)} 件")
+        if ffmpeg_available():
+            log(f"  🎬 ffmpeg: WAV → 透明MP4 変換中...")
+            mp4_paths = convert_all_to_mp4(audio_dir, len(telops))
+            log(f"  📤 MP4 を catbox.moe にアップロード中...")
+            video_urls = upload_all_video(audio_dir, mp4_paths)
+            log(f"  ✅ 動画アップロード完了: {sum(1 for u in video_urls if u)}/{len(telops)} 件")
+        else:
+            log(f"  ⚠️  ffmpeg が見つかりません → MP4変換スキップ")
     else:
         log(f"  ⚠️  VOICEVOX ({VOICEVOX_URL}) に接続できません → 音声生成スキップ")
 
     # ── Canva 組み立て（claude subprocess） ──────────────────────────────
     if dry:
         log("  [DRY] Canva 操作スキップ")
-        log(f"  [DRY] 送信予定プロンプト先頭:\n{build_canva_prompt(props, public_image_url, telops, audio_urls=audio_urls)[:300]}")
+        log(f"  [DRY] 送信予定プロンプト先頭:\n{build_canva_prompt(props, public_image_url, telops, video_urls=video_urls)[:300]}")
         return True
 
     log("  🎨 Canva 組み立て開始（claude subprocess）...")
-    design_id, canva_url = run_canva_assembly(props, public_image_url, telops, audio_urls=audio_urls)
+    design_id, canva_url = run_canva_assembly(props, public_image_url, telops, video_urls=video_urls)
     log(f"  ✅ design_id: {design_id}")
     log(f"  ✅ canva_url: {canva_url}")
 
@@ -572,7 +639,7 @@ def process_page(props: dict, dry: bool = False) -> bool:
     # ── Discord 通知 ───────────────────────────────────────────────────────
     notify_discord(manga_title, canva_url, notion_url)
 
-    return True
+    return audio_dir  # YouTube投稿後クリーンアップ用に呼び出し元へ返す
 
 
 def main():
@@ -599,8 +666,8 @@ def main():
     for page in pages:
         props = extract_props(page)
         try:
-            success = process_page(props, dry=dry)
-            if success:
+            result = process_page(props, dry=dry)
+            if result is not False:
                 ok += 1
             else:
                 ng += 1

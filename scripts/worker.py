@@ -33,6 +33,7 @@ JPY_PER_USD          = 155
 
 VAULT           = Path(__file__).resolve().parent.parent
 EXPERIENCE_FILE = VAULT / "Projects" / "dmm-manga-affiliate" / "Knowledge" / "experience.md"
+AUDIO_DIR       = VAULT / "Projects" / "dmm-manga-affiliate" / "audio"
 
 POLL_INTERVAL  = 30   # 秒
 CLAUDE_TIMEOUT = 300  # 秒（Claude の応答待ち上限）
@@ -42,6 +43,7 @@ CLAUDE_TIMEOUT = 300  # 秒（Claude の応答待ち上限）
 # 失敗時: _in_flight に残すことで連続再送を防ぐ（再試行は brain-worker 再起動で）
 _in_flight: set          = set()   # queued → 台本生成
 _in_flight_assembly: set = set()   # approved → Canva組み立て
+_in_flight_cleanup: set  = set()   # youtube_done → メディア削除
 
 
 # ── ユーティリティ ────────────────────────────────────────────────────────
@@ -85,6 +87,14 @@ def get_queued_pages():
 def get_approved_pages():
     _, res = notion("POST", f"/databases/{NOTION_CONTENT_DB_ID}/query", {
         "filter": {"property": "status", "select": {"equals": "approved"}},
+        "sorts":  [{"property": "created_at", "direction": "ascending"}],
+    })
+    return res.get("results", [])
+
+
+def get_youtube_done_pages():
+    _, res = notion("POST", f"/databases/{NOTION_CONTENT_DB_ID}/query", {
+        "filter": {"property": "status", "select": {"equals": "youtube_done"}},
         "sorts":  [{"property": "created_at", "direction": "ascending"}],
     })
     return res.get("results", [])
@@ -338,6 +348,32 @@ def job_assemble_video(props: dict) -> bool:
     return True
 
 
+def job_cleanup_media(props: dict) -> bool:
+    """
+    youtube_done ページに対応するローカルの WAV / MP4 ファイルを削除する。
+    audio_dir は manga_title から再構築してグロブで特定する。
+    """
+    if not AUDIO_DIR.exists():
+        return True
+    safe = re.sub(r'[^\w\-_]', '_', props["manga_title"])[:40]
+    matched = list(AUDIO_DIR.glob(f"*_{safe}"))
+    if not matched:
+        log(f"  ℹ️  削除対象ディレクトリなし: {safe}")
+        return True
+    for d in matched:
+        deleted = 0
+        for f in d.iterdir():
+            if f.suffix in (".wav", ".mp4"):
+                f.unlink()
+                deleted += 1
+        try:
+            d.rmdir()
+        except OSError:
+            pass
+        log(f"  🗑  メディア削除: {deleted}件 ({d.name})")
+    return True
+
+
 # ── ポーリングループ ────────────────────────────────────────────────────────
 def poll_once():
     """1サイクル分の処理。"""
@@ -379,6 +415,20 @@ def poll_once():
             log(f"  ❌ 組み立て失敗: {e}")
     elif all_approved:
         log(f"approved: {len(all_approved)}件 (すべて処理中) | スキップ")
+
+    # ── ジョブ3: youtube_done → ローカルメディア削除 ─────────────────────
+    all_done = get_youtube_done_pages()
+    pending_cleanup = [p for p in all_done if p["id"] not in _in_flight_cleanup]
+
+    if pending_cleanup:
+        page  = pending_cleanup[0]
+        props = extract_props(page)
+        log(f"youtube_done: {len(all_done)}件 | メディア削除: 「{props['manga_title'] or '(タイトル未設定)'}」")
+        _in_flight_cleanup.add(props["page_id"])
+        try:
+            job_cleanup_media(props)
+        except Exception as e:
+            log(f"  ❌ メディア削除失敗: {e}")
 
 
 def main():
