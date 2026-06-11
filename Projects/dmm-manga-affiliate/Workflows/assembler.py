@@ -286,13 +286,14 @@ def generate_all_voices(manga_title: str, telops: list) -> Path:
 
 def wav_to_transparent_mp4(wav_path: Path) -> Path:
     """
-    WAV を 2x2px 黒フレーム + 音声トラックの MP4 に変換する。
-    Canva に insert_fill opacity=0 で差し込むことで映像は透明・音声のみ再生される。
+    WAV を 1080x1920px 黒フレーム（縦型）+ 音声トラックの MP4 に変換する。
+    Canva が標準動画として認識し音声を再生できるよう、フルサイズ縦型に変更。
+    opacity=0.01 で差し込むことで映像はほぼ不可視・音声のみ再生される。
     """
     mp4_path = wav_path.with_suffix(".mp4")
     subprocess.run([
         "ffmpeg", "-y",
-        "-f", "lavfi", "-i", "color=black:size=2x2:rate=1",
+        "-f", "lavfi", "-i", "color=black:size=1080x1920:rate=30",
         "-i", str(wav_path),
         "-c:v", "libx264", "-pix_fmt", "yuv420p", "-tune", "stillimage",
         "-c:a", "aac", "-b:a", "128k",
@@ -318,6 +319,20 @@ def convert_all_to_mp4(audio_dir: Path, telop_count: int) -> list:
             log(f"  ⚠️  telop_{i:02d} MP4変換失敗: {e}")
             paths.append(None)
     return paths
+
+
+def get_all_durations(audio_dir: Path, telop_count: int) -> list:
+    """各テロップ WAV の再生時間（前後無音込み）を秒単位で返す。"""
+    durations = []
+    for i in range(1, telop_count + 1):
+        path = audio_dir / f"telop_{i:02d}.wav"
+        if path.exists():
+            with wave.open(str(path), 'rb') as r:
+                duration = round(r.getnframes() / r.getframerate(), 2)
+            durations.append(duration)
+        else:
+            durations.append(None)
+    return durations
 
 
 def upload_all_video(audio_dir: Path, mp4_paths: list) -> list:
@@ -377,7 +392,8 @@ def invoke_claude(prompt: str) -> str:
     return result.stdout.strip()
 
 
-def build_canva_prompt(props: dict, public_image_url: str, telops: list) -> str:
+def build_canva_prompt(props: dict, public_image_url: str, telops: list,
+                       durations: list = None) -> str:
     """Canva MCP 操作の詳細指示を作成する（手順1〜10: テンプレコピー〜テロップ書き換え）。"""
 
     telop_ops = "\n".join(
@@ -389,6 +405,22 @@ def build_canva_prompt(props: dict, public_image_url: str, telops: list) -> str:
         f"  ページ{i+2}: {t}"
         for i, t in enumerate(telops)
     )
+
+    duration_step = ""
+    if durations and any(d for d in durations if d is not None):
+        dur_lines = "\n".join(
+            f"  ページ{i+2}: {d}秒" if d is not None else f"  ページ{i+2}: スキップ"
+            for i, d in enumerate(durations)
+        )
+        duration_step = f"""
+## 手順 9: 各ページの表示時間を設定
+VOICEVOX 音声の長さ（前後無音込み）に合わせて各ページの表示時間を設定してください。
+`perform-editing-operations` で各ページの duration を設定する操作を実行してください。
+
+{dur_lines}
+
+操作: set_duration（秒単位で指定）
+"""
 
     return f"""以下の手順で Canva デザインを組み立ててください。
 Canva MCP ツール（mcp__claude_ai_Canva__ 系）を使用してください。
@@ -460,7 +492,7 @@ URL: {public_image_url}
 {telop_ops}
 
 各テロップの操作: update_text
-
+{duration_step}
 ## 手順 9: トランザクションをコミット
 `commit-editing-transaction` でトランザクションをコミットしてください。
 
@@ -549,16 +581,16 @@ def _parse_canva_output(output: str) -> tuple:
 
 
 def run_canva_assembly(props: dict, public_image_url: str, telops: list,
-                       video_urls: list = None) -> tuple:
+                       video_urls: list = None, durations: list = None) -> tuple:
     """
     claude subprocess を2回に分割して Canva 組み立てを実行。
-      1回目: テンプレコピー・タイトル・画像・テロップ（手順1〜10）
+      1回目: テンプレコピー・タイトル・画像・テロップ・ページ時間（手順1〜10）
       2回目: 透明動画差し込み（手順11）※ video_urls がある場合のみ
     Returns: (design_id, canva_url)
     """
     # ── 1回目: メイン組み立て ─────────────────────────────────────────────
     log("  [1/2] テンプレコピー・タイトル・画像・テロップ...")
-    prompt1  = build_canva_prompt(props, public_image_url, telops)
+    prompt1  = build_canva_prompt(props, public_image_url, telops, durations=durations)
     output1  = invoke_claude(prompt1)
     design_id, canva_url = _parse_canva_output(output1)
 
@@ -641,10 +673,13 @@ def process_page(props: dict, dry: bool = False) -> bool:
     # ── VOICEVOX 音声生成 + ffmpeg MP4変換 ───────────────────────────────
     audio_dir  = None
     video_urls = None
+    durations  = None
     if voicevox_available():
         log(f"  🎙 VOICEVOX 音声生成開始 (speaker={VOICEVOX_SPEAKER})")
         audio_dir = generate_all_voices(manga_title, [t for t in telops if t])
         log(f"  ✅ 音声保存先: {audio_dir}")
+        durations = get_all_durations(audio_dir, len(telops))
+        log(f"  ⏱  ページ表示時間: {durations}")
         if ffmpeg_available():
             log(f"  🎬 ffmpeg: WAV → 透明MP4 変換中...")
             mp4_paths = convert_all_to_mp4(audio_dir, len(telops))
@@ -659,11 +694,13 @@ def process_page(props: dict, dry: bool = False) -> bool:
     # ── Canva 組み立て（claude subprocess） ──────────────────────────────
     if dry:
         log("  [DRY] Canva 操作スキップ")
-        log(f"  [DRY] 1回目プロンプト先頭:\n{build_canva_prompt(props, public_image_url, telops)[:300]}")
+        log(f"  [DRY] 1回目プロンプト先頭:\n{build_canva_prompt(props, public_image_url, telops, durations=durations)[:300]}")
         return True
 
     log("  🎨 Canva 組み立て開始（claude subprocess）...")
-    design_id, canva_url = run_canva_assembly(props, public_image_url, telops, video_urls=video_urls)
+    design_id, canva_url = run_canva_assembly(
+        props, public_image_url, telops, video_urls=video_urls, durations=durations
+    )
     log(f"  ✅ design_id: {design_id}")
     log(f"  ✅ canva_url: {canva_url}")
 
