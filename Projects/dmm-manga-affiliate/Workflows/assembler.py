@@ -23,7 +23,7 @@ assembler.py — Notion approved → Canva 組み立て + VOICEVOX 音声生成
 環境変数（任意）:
   DISCORD_WEBHOOK_URL     # 未設定時は通知スキップ
 """
-import json, os, re, subprocess, sys, time, urllib.parse, urllib.request, urllib.error
+import json, os, re, subprocess, sys, time, wave, urllib.parse, urllib.request, urllib.error
 from datetime import datetime
 from pathlib import Path
 
@@ -239,9 +239,23 @@ def generate_voice(text: str, speaker: int = VOICEVOX_SPEAKER) -> bytes:
         return res.read()
 
 
+def add_silence_padding(wav_path: Path, pre_sec: float = 0.3, post_sec: float = 0.5):
+    """WAV の前後に無音を挿入して上書き保存する（前0.3秒・後0.5秒）。"""
+    with wave.open(str(wav_path), 'rb') as r:
+        params   = r.getparams()
+        pcm_data = r.readframes(r.getnframes())
+    bytes_per_frame = params.nchannels * params.sampwidth
+    pre  = bytes(int(pre_sec  * params.framerate) * bytes_per_frame)
+    post = bytes(int(post_sec * params.framerate) * bytes_per_frame)
+    with wave.open(str(wav_path), 'wb') as w:
+        w.setparams(params)
+        w.writeframes(pre + pcm_data + post)
+
+
 def generate_all_voices(manga_title: str, telops: list) -> Path:
     """
     テロップ全行の音声を生成して audio/{safe_title}/ ディレクトリに保存。
+    各 WAV の前後に無音（前0.3秒・後0.5秒）を挿入する。
     Returns: 保存先ディレクトリ
     """
     safe = re.sub(r'[^\w\-_]', '_', manga_title)[:40]
@@ -254,7 +268,8 @@ def generate_all_voices(manga_title: str, telops: list) -> Path:
         try:
             wav = generate_voice(telop)
             path.write_bytes(wav)
-            log(f"  🎙 telop_{i:02d}.wav 生成完了 ({len(telop)}文字)")
+            add_silence_padding(path)
+            log(f"  🎙 telop_{i:02d}.wav 生成完了 ({len(telop)}文字、前0.3s+後0.5s無音挿入)")
         except Exception as e:
             log(f"  ⚠️  telop_{i:02d} 音声生成失敗: {e}")
 
@@ -282,7 +297,8 @@ def invoke_claude(prompt: str) -> str:
     return result.stdout.strip()
 
 
-def build_canva_prompt(props: dict, public_image_url: str, telops: list) -> str:
+def build_canva_prompt(props: dict, public_image_url: str, telops: list,
+                       audio_dir: Path = None) -> str:
     """Canva MCP 操作の詳細指示を作成する。"""
 
     telop_ops = "\n".join(
@@ -294,6 +310,19 @@ def build_canva_prompt(props: dict, public_image_url: str, telops: list) -> str:
         f"  ページ{i+2}: {t}"
         for i, t in enumerate(telops)
     )
+
+    audio_section = ""
+    if audio_dir and audio_dir.exists():
+        wav_lines = "\n".join(
+            f"  telop_{i+1:02d}.wav → {audio_dir / f'telop_{i+1:02d}.wav'}"
+            for i in range(len(telops))
+        )
+        audio_section = f"""
+## 音声ファイル（VOICEVOX 生成済み）
+保存先: {audio_dir}
+{wav_lines}
+（各ファイルは前0.3秒・後0.5秒の無音を含む）
+"""
 
     return f"""以下の手順で Canva デザインを組み立ててください。
 Canva MCP ツール（mcp__claude_ai_Canva__ 系）を使用してください。
@@ -384,15 +413,16 @@ STATUS=success
 エラーが発生した場合:
 STATUS=error
 ERROR=<エラーの詳細>
-"""
+{audio_section}"""
 
 
-def run_canva_assembly(props: dict, public_image_url: str, telops: list) -> tuple:
+def run_canva_assembly(props: dict, public_image_url: str, telops: list,
+                       audio_dir: Path = None) -> tuple:
     """
     claude subprocess で Canva 組み立てを実行。
     Returns: (design_id, canva_url)
     """
-    prompt = build_canva_prompt(props, public_image_url, telops)
+    prompt = build_canva_prompt(props, public_image_url, telops, audio_dir=audio_dir)
     output = invoke_claude(prompt)
 
     design_id = ""
@@ -492,11 +522,11 @@ def process_page(props: dict, dry: bool = False) -> bool:
     # ── Canva 組み立て（claude subprocess） ──────────────────────────────
     if dry:
         log("  [DRY] Canva 操作スキップ")
-        log(f"  [DRY] 送信予定プロンプト先頭:\n{build_canva_prompt(props, public_image_url, telops)[:300]}")
+        log(f"  [DRY] 送信予定プロンプト先頭:\n{build_canva_prompt(props, public_image_url, telops, audio_dir=audio_dir)[:300]}")
         return True
 
     log("  🎨 Canva 組み立て開始（claude subprocess）...")
-    design_id, canva_url = run_canva_assembly(props, public_image_url, telops)
+    design_id, canva_url = run_canva_assembly(props, public_image_url, telops, audio_dir=audio_dir)
     log(f"  ✅ design_id: {design_id}")
     log(f"  ✅ canva_url: {canva_url}")
 
