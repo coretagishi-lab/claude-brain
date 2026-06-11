@@ -1,24 +1,28 @@
 #!/usr/bin/env python3
 """
-assembler.py — Notion approved → Canva 組み立て + VOICEVOX 音声生成
+assembler.py — Notion approved → VOICEVOX 音声生成 → Canva ジョブ出力
 
 フロー:
   1. Notion status=approved を取得
   2. 画像を catbox.moe にアップロード（Canva 用公開 URL 取得）
-  3. claude サブプロセスで Canva MCP 操作:
-       テンプレコピー → タイトル書き換え → 画像挿入 → テロップ書き換え
-  4. VOICEVOX（localhost:50021）でめたん音声生成 → audio/ に保存
-  5. Notion: status=canva_ready、canva_url を記録
-  6. タスク確認ボードに「👀 確認待ち」+ Canva URL 登録
-  7. Discord #通知 に完成通知
+  3. VOICEVOX（localhost:50021）で音声生成 → WAV → MP4 → catbox.moe
+  4. canva_job.json に組み立てデータを保存し CANVA_JOB_FILE= を出力
+       → Claude Code セッションが Canva MCP を直接操作する
+  5. Canva 完了後: --finalize で Notion 更新 / タスクボード / Discord 通知
 
 使い方:
-  python3 assembler.py          # approved を全件処理
+  python3 assembler.py          # approved を全件処理（ステップ 1〜4）
   python3 assembler.py --dry    # Notion 更新せずに確認
+
+  # Canva 操作完了後の後処理（Claude Code セッションから呼ぶ）:
+  python3 assembler.py --finalize \\
+      --state-file=<canva_job.json のパス> \\
+      --design-id=<新しい design_id> \\
+      --canva-url=<Canva URL>
 
 環境変数（必須）:
   NOTION_TOKEN
-  NOTION_CONTENT_DB_ID
+  NOTION_CONTENT_DB_ID（--finalize 時は不要）
 
 環境変数（任意）:
   DISCORD_WEBHOOK_URL     # 未設定時は通知スキップ
@@ -39,8 +43,6 @@ AUDIO_DIR  = VAULT / "Projects" / "dmm-manga-affiliate" / "audio"
 
 VOICEVOX_URL = "http://localhost:50021"
 VOICEVOX_SPEAKER = 47  # ナースロボ＿タイプT ノーマル（アカウントごとに変更可）
-
-CLAUDE_TIMEOUT = 600   # Canva 操作は時間がかかるため長めに設定
 
 # ── Canva テンプレート情報（handoff.md より） ──────────────────────────────
 TEMPLATE_ID = "DAHKogY0SBo"
@@ -380,245 +382,55 @@ def cleanup_media_files(audio_dir: Path):
     log(f"  🗑  メディアファイル削除: {deleted}件 ({audio_dir.name})")
 
 
-# ── Claude サブプロセス: Canva MCP 操作 ───────────────────────────────────
-def invoke_claude(prompt: str) -> str:
-    """claude をサブプロセスで起動し stdin にプロンプトを渡す。"""
-    result = subprocess.run(
-        ["claude", "--dangerously-skip-permissions"],
-        input=prompt,
-        capture_output=True,
-        text=True,
-        timeout=CLAUDE_TIMEOUT,
-    )
-    log(f"  claude exit={result.returncode} | "
-        f"stdout={len(result.stdout)}文字 | stderr={result.stderr[:80]!r}")
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"claude failed (exit {result.returncode})\n"
-            f"stdout: {result.stdout[:400]!r}\n"
-            f"stderr: {result.stderr[:200]!r}"
-        )
-    return result.stdout.strip()
+# ── Canva ジョブ管理 ──────────────────────────────────────────────────────
 
-
-def build_canva_prompt(props: dict, public_image_url: str, telops: list,
-                       durations: list = None) -> str:
-    """Canva MCP 操作の詳細指示を作成する（手順1〜10: テンプレコピー〜テロップ書き換え）。"""
-
-    telop_ops = "\n".join(
-        f"  - element_id: {eid}  →  テキスト: 「{t}」"
-        for eid, t in zip(TELOP_ELEM_IDS, telops)
-    )
-
-    telops_per_page = "\n".join(
-        f"  ページ{i+2}: {t}"
-        for i, t in enumerate(telops)
-    )
-
-    duration_step = ""
-    if durations and any(d for d in durations if d is not None):
-        dur_lines = "\n".join(
-            f"  ページ{i+2}: {d}秒" if d is not None else f"  ページ{i+2}: スキップ"
-            for i, d in enumerate(durations)
-        )
-        duration_step = f"""
-## 手順 9: 各ページの表示時間を設定
-VOICEVOX 音声の長さ（前後無音込み）に合わせて各ページの表示時間を設定してください。
-`perform-editing-operations` で各ページの duration を設定する操作を実行してください。
-
-{dur_lines}
-
-操作: set_duration（秒単位で指定）
-"""
-
-    return f"""以下の手順で Canva デザインを組み立ててください。
-Canva MCP ツール（mcp__claude_ai_Canva__ 系）を使用してください。
-
-## 作業データ
-- テンプレートID: {TEMPLATE_ID}
-- 漫画タイトル: {props['manga_title']}
-- 画像URL（公開済み）: {public_image_url}
-- テロップ ({len(telops)}行):
-{telops_per_page}
-
-## 漫画画像のコマ構成
-元画像サイズ: 1000×1399px（2列×3行 = 6コマ）
-スロットサイズ: 954×837px
-
-コマ位置（元画像内の座標）:
-  コマ1(左上):  x=0,   y=0,    w=500, h=466
-  コマ2(右上):  x=500, y=0,    w=500, h=466
-  コマ3(左中):  x=0,   y=466,  w=500, h=466
-  コマ4(右中):  x=500, y=466,  w=500, h=466
-  コマ5(左下):  x=0,   y=932,  w=500, h=466
-  コマ6(右下):  x=500, y=932,  w=500, h=466
-
-各ページのテロップ内容に合ったコマを選んでズーム表示してください（同コマの複数使用可）。
-ズーム方法: update_fill → resize_element でスロット全体を覆うようにスケール → position_element でコマ中心を合わせる
-
----
-
-## 手順 1: テンプレートをコピー
-`copy-design` ツールで design_id={TEMPLATE_ID} をコピーしてください。
-取得した新しい design_id を以降の手順で使用します。
-
-## 手順 2: 編集トランザクション開始
-`start-editing-transaction` で新しい design_id のトランザクションを開始してください。
-
-## 手順 3: ページ構成確認
-`get-design-pages` でページ一覧を取得してください。
-
-## 手順 4: タイトル書き換え（ページ1）
-`perform-editing-operations` で以下を実行してください。
-element_id は必ず以下の固定値を使用し、自分でページを探して別のIDを使わないでください:
-- element_id: {ELEM_MANGA_TITLE}
-- 操作: update_text
-- テキスト: "{props['manga_title']}"
-（このスロットには現在「男の漫画」というテキストが入っています）
-
-## 手順 5: 画像を Canva にアップロード
-`upload-asset-from-url` で以下の URL から画像をアップロードし asset_id を取得:
-URL: {public_image_url}
-
-## 手順 6: ページ1のトップ画像スロットに画像を差し込む
-`get-design-content` でページ1の要素を確認し、画像スロット（image要素）の element_id を特定してください。
-その後 `perform-editing-operations` で:
-- 操作: update_fill (fill_type: IMAGE, asset_id: <取得したasset_id>)
-ページ1は導入スライドのため、画像全体（ズームなし）を表示してください。
-
-## 手順 7: ページ2〜9に画像を差し込む（コマ別ズーム）
-各ページのテロップに合った適切なコマを選択し、ズーム表示してください。
-
-ページ2の既知スロット ID: {IMAGE_SLOT_P2}
-ページ3〜9: `get-design-pages` で各ページの画像スロット element_id を取得してください。
-
-各スロットに対して:
-- `update_fill` で asset_id を設定
-- `resize_element` + `position_element` で選択したコマにズーム
-
-## 手順 8: テロップ書き換え（ページ2〜9）
-`perform-editing-operations` で以下を順番に実行:
-{telop_ops}
-
-各テロップの操作: update_text
-{duration_step}
-## 手順 9: トランザクションをコミット
-`commit-editing-transaction` でトランザクションをコミットしてください。
-
-## 手順 10: Canva URL を取得
-`get-design` で新しい design_id のデザイン情報を取得し、URL を確認してください。
-
----
-
-## 完了後の出力（必須）
-全手順が完了したら、以下の形式で結果を返してください:
-
-DESIGN_ID=<新しいdesign_id>
-CANVA_URL=<CanvaデザインのURL>
-STATUS=success
-
-エラーが発生した場合:
-STATUS=error
-ERROR=<エラーの詳細>
-"""
-
-
-def build_canva_prompt_audio(design_id: str, video_urls: list) -> str:
-    """Canva MCP 操作の詳細指示（手順11のみ: 透明動画差し込み）。"""
-    video_lines = "\n".join(
-        f"  ページ{i+2}: {url}" if url else f"  ページ{i+2}: （スキップ）"
-        for i, url in enumerate(video_urls)
-    )
-    return f"""既存の Canva デザインに VOICEVOX 音声動画を差し込みます。
-Canva MCP ツール（mcp__claude_ai_Canva__ 系）を使用してください。
-
-## 対象デザイン
-design_id: {design_id}
-
-## 手順 1: 編集トランザクション開始
-`start-editing-transaction` で design_id={design_id} のトランザクションを開始してください。
-
-## 手順 2: 透明動画（VOICEVOX 音声）をページに差し込む
-各ページ（2〜9）に対応した MP4 の公開 URL を以下に示します。
-この MP4 は 2x2px の黒フレーム + VOICEVOX 音声トラックです。
-映像を opacity=0.01（ほぼ透明）で差し込むことで音声のみ再生されます。
-
-{video_lines}
-
-各動画の処理:
-1. `upload-asset-from-url` で MP4 URL をアップロード → asset_id を取得
-2. `perform-editing-operations` で対応ページに差し込み:
-   操作: insert_fill (fill_type: VIDEO, asset_id: <asset_id>)
-3. 配置後に opacity を 0.01 に設定して透明化する
-
-## 手順 3: トランザクションをコミット
-`commit-editing-transaction` でトランザクションをコミットしてください。
-
----
-
-## 完了後の出力（必須）
-STATUS=success
-
-エラーが発生した場合:
-STATUS=error
-ERROR=<エラーの詳細>
-"""
-
-
-def _parse_canva_output(output: str) -> tuple:
-    """claude 出力から (design_id, canva_url) を抽出する。"""
-    design_id = ""
-    canva_url  = ""
-
-    m = re.search(r"DESIGN_ID=(\S+)", output)
-    if m:
-        design_id = m.group(1).strip()
-
-    m = re.search(r"CANVA_URL=(https://\S+)", output)
-    if m:
-        canva_url = m.group(1).strip().rstrip(".,")
-
-    if not canva_url:
-        m = re.search(r"https://www\.canva\.com/design/\S+", output)
-        if m:
-            canva_url = m.group(0).rstrip(".,)")
-
-    if not canva_url and design_id:
-        canva_url = f"https://www.canva.com/design/{design_id}/edit"
-
-    return design_id, canva_url
-
-
-def run_canva_assembly(props: dict, public_image_url: str, telops: list,
-                       video_urls: list = None, durations: list = None) -> tuple:
+def save_canva_job(props: dict, public_image_url: str, telops: list,
+                   durations: list, video_urls: list, audio_dir) -> Path:
     """
-    claude subprocess を2回に分割して Canva 組み立てを実行。
-      1回目: テンプレコピー・タイトル・画像・テロップ・ページ時間（手順1〜10）
-      2回目: 透明動画差し込み（手順11）※ video_urls がある場合のみ
-    Returns: (design_id, canva_url)
+    Canva 組み立てに必要なデータを JSON ファイルに保存する。
+    Claude Code セッションがこのファイルを読み、Canva MCP を直接操作する。
+    Returns: 保存した JSON ファイルのパス
     """
-    # ── 1回目: メイン組み立て ─────────────────────────────────────────────
-    log("  [1/2] テンプレコピー・タイトル・画像・テロップ...")
-    prompt1  = build_canva_prompt(props, public_image_url, telops, durations=durations)
-    output1  = invoke_claude(prompt1)
-    design_id, canva_url = _parse_canva_output(output1)
+    out_dir    = Path(audio_dir) if audio_dir else AUDIO_DIR
+    state_file = out_dir / "canva_job.json"
+    state = {
+        "page_id":          props["page_id"],
+        "manga_title":      props["manga_title"],
+        "public_image_url": public_image_url,
+        "telops":           telops,
+        "durations":        durations,
+        "video_urls":       video_urls,
+        "audio_dir":        str(out_dir),
+        "template_id":      TEMPLATE_ID,
+        "elem_manga_title": ELEM_MANGA_TITLE,
+        "telop_elem_ids":   TELOP_ELEM_IDS,
+        "image_slot_p2":    IMAGE_SLOT_P2,
+    }
+    state_file.write_text(json.dumps(state, ensure_ascii=False, indent=2))
+    return state_file
 
-    if not design_id:
-        raise RuntimeError(f"design_id が取得できませんでした。\n出力末尾: {output1[-400:]!r}")
 
-    log(f"  [1/2完了] design_id={design_id}")
+def finalize_canva(state_file: Path, design_id: str, canva_url: str, dry: bool = False):
+    """
+    Claude Code が Canva MCP 操作を完了した後に呼ぶ後処理。
+    Notion 更新 / タスクボード登録 / Discord 通知 / メディアファイル削除
+    """
+    state       = json.loads(state_file.read_text())
+    page_id     = state["page_id"]
+    manga_title = state["manga_title"]
+    audio_dir   = Path(state["audio_dir"]) if state.get("audio_dir") else None
 
-    # ── 2回目: 音声動画差し込み ───────────────────────────────────────────
-    if video_urls and any(video_urls):
-        log("  [2/2] 透明動画（VOICEVOX 音声）差し込み...")
-        prompt2 = build_canva_prompt_audio(design_id, video_urls)
-        try:
-            invoke_claude(prompt2)
-            log("  [2/2完了] 音声動画差し込み完了")
-        except Exception as e:
-            log(f"  ⚠️  [2/2] 音声差し込み失敗（メイン組み立ては成功済み）: {e}")
+    notion_url = f"https://app.notion.com/p/{page_id.replace('-', '')}"
+    update_to_canva_ready(page_id, canva_url, design_id, dry=dry)
+    log("  ✅ Notion: approved → canva_ready")
 
-    return design_id, canva_url
+    register_to_task_board(manga_title, canva_url, notion_url, dry=dry)
+    log("  ✅ タスク確認ボード登録完了")
+
+    notify_discord(manga_title, canva_url, notion_url)
+
+    if audio_dir and audio_dir.exists():
+        cleanup_media_files(audio_dir)
 
 
 # ── Discord 通知 ──────────────────────────────────────────────────────────
@@ -700,37 +512,50 @@ def process_page(props: dict, dry: bool = False) -> bool:
     else:
         log(f"  ⚠️  VOICEVOX ({VOICEVOX_URL}) に接続できません → 音声生成スキップ")
 
-    # ── Canva 組み立て（claude subprocess） ──────────────────────────────
+    # ── Canva ジョブ保存 ──────────────────────────────────────────────────
     if dry:
-        log("  [DRY] Canva 操作スキップ")
-        log(f"  [DRY] 1回目プロンプト先頭:\n{build_canva_prompt(props, public_image_url, telops, durations=durations)[:300]}")
+        log("  [DRY] Canva ジョブ保存スキップ")
         return True
 
-    log("  🎨 Canva 組み立て開始（claude subprocess）...")
-    design_id, canva_url = run_canva_assembly(
-        props, public_image_url, telops, video_urls=video_urls, durations=durations
+    state_file = save_canva_job(
+        props, public_image_url, telops, durations or [], video_urls or [], audio_dir
     )
-    log(f"  ✅ design_id: {design_id}")
-    log(f"  ✅ canva_url: {canva_url}")
-
-    # ── Notion 更新 ───────────────────────────────────────────────────────
-    notion_url = f"https://app.notion.com/p/{props['page_id'].replace('-', '')}"
-    update_to_canva_ready(props["page_id"], canva_url, design_id, dry=dry)
-    log("  ✅ Notion: approved → canva_ready")
-
-    # ── タスク確認ボード ───────────────────────────────────────────────────
-    register_to_task_board(manga_title, canva_url, notion_url, dry=dry)
-    log("  ✅ タスク確認ボード登録完了")
-
-    # ── Discord 通知 ───────────────────────────────────────────────────────
-    notify_discord(manga_title, canva_url, notion_url)
-
-    return audio_dir  # YouTube投稿後クリーンアップ用に呼び出し元へ返す
+    log(f"  📋 Canvaジョブ保存: {state_file}")
+    print(f"\nCANVA_JOB_FILE={state_file}", flush=True)
+    return state_file
 
 
 def main():
     dry = "--dry" in sys.argv
 
+    # ── --finalize モード: Claude Code が Canva 完了後に呼ぶ ──────────────
+    if "--finalize" in sys.argv:
+        def _arg(name):
+            for a in sys.argv:
+                if a.startswith(f"--{name}="):
+                    return a.split("=", 1)[1]
+            return ""
+
+        state_file = Path(_arg("state-file"))
+        design_id  = _arg("design-id")
+        canva_url  = _arg("canva-url")
+
+        if not state_file.exists():
+            print(f"❌ state-file が見つかりません: {state_file}")
+            sys.exit(1)
+        if not design_id or not canva_url:
+            print("❌ --design-id と --canva-url が必要です")
+            sys.exit(1)
+        if not os.environ.get("NOTION_TOKEN"):
+            print("❌ 環境変数未設定: NOTION_TOKEN")
+            sys.exit(1)
+
+        log(f"finalize 起動: design_id={design_id}")
+        finalize_canva(state_file, design_id, canva_url, dry=dry)
+        log("完了")
+        return
+
+    # ── 通常モード: Notion approved → VOICEVOX → canva_job.json 出力 ─────
     missing = [k for k in ["NOTION_TOKEN", "NOTION_CONTENT_DB_ID"] if not os.environ.get(k)]
     if missing:
         print(f"❌ 環境変数未設定: {', '.join(missing)}")
@@ -761,7 +586,9 @@ def main():
             log(f"  ❌ 処理失敗: {e}")
             ng += 1
 
-    log(f"\n完了: ✅ {ok}件 / ❌ {ng}件")
+    log(f"\n準備完了: ✅ {ok}件 / ❌ {ng}件")
+    log("ℹ️  CANVA_JOB_FILE のパスを Claude Code セッションに渡して Canva MCP 操作を実行してください")
+    log("    完了後: python3 assembler.py --finalize --state-file=<path> --design-id=<id> --canva-url=<url>")
 
 
 if __name__ == "__main__":
