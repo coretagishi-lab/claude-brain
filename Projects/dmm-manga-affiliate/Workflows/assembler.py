@@ -500,7 +500,7 @@ design_id: {design_id}
 ## 手順 2: 透明動画（VOICEVOX 音声）をページに差し込む
 各ページ（2〜9）に対応した MP4 の公開 URL を以下に示します。
 この MP4 は 2x2px の黒フレーム + VOICEVOX 音声トラックです。
-映像を opacity=0（完全透明）で差し込むことで音声のみ再生されます。
+映像を opacity=0.01（ほぼ透明）で差し込むことで音声のみ再生されます。
 
 {video_lines}
 
@@ -508,7 +508,7 @@ design_id: {design_id}
 1. `upload-asset-from-url` で MP4 URL をアップロード → asset_id を取得
 2. `perform-editing-operations` で対応ページに差し込み:
    操作: insert_fill (fill_type: VIDEO, asset_id: <asset_id>)
-3. 配置後に opacity を 0 に設定して透明化する
+3. 配置後に opacity を 0.01 に設定して透明化する
 
 ## 手順 3: トランザクションをコミット
 `commit-editing-transaction` でトランザクションをコミットしてください。
