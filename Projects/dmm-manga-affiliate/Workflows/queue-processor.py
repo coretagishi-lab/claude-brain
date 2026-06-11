@@ -69,7 +69,9 @@ def update_to_draft(page_id, content, cost_usd):
         "script":            {"rich_text": rt(script_text)},
         "api_cost_estimate": {"rich_text": rt(f"${cost_usd:.4f}")},
     }
-    notion("PATCH", f"/pages/{page_id}", {"properties": props})
+    status_code, resp = notion("PATCH", f"/pages/{page_id}", {"properties": props})
+    if status_code not in (200, 204):
+        raise RuntimeError(f"Notion status更新失敗 (HTTP {status_code}): {resp}")
 
     blocks = [
         {"object": "block", "type": "callout",
@@ -103,8 +105,25 @@ def update_to_draft(page_id, content, cost_usd):
     notion("PATCH", f"/blocks/{page_id}/children", {"children": blocks})
 
 
+def task_board_entry_exists(page_id):
+    """同じ page_id の [台本確認] エントリがタスクボードに既存かチェック"""
+    _, res = notion("POST", f"/databases/{NOTION_TASK_BOARD_ID}/query", {
+        "filter": {
+            "and": [
+                {"property": "タスク名",   "title":     {"contains": "[台本確認]"}},
+                {"property": "内容要約",   "rich_text": {"contains": f"page_id:{page_id}"}},
+            ]
+        },
+        "page_size": 1,
+    })
+    return len(res.get("results", [])) > 0
+
+
 def register_to_task_board(manga_title, telops, notion_url, cost_usd, page_id):
-    """台本完成をタスク確認ボードに「👀 確認待ち」で登録"""
+    """台本完成をタスク確認ボードに「👀 確認待ち」で登録（重複防止付き）"""
+    if task_board_entry_exists(page_id):
+        print(f"  ⚠️  タスクボード登録スキップ（page_id:{page_id[:8]}... は既存）")
+        return
     today = datetime.now().strftime("%Y-%m-%d")
     telop_text = "\n".join([f"{i+1}. {l}" for i, l in enumerate(telops)])
     notion("POST", "/pages", {
