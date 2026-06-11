@@ -142,3 +142,18 @@ Discord漫画投稿 → queue-processor → タスク確認ボードに台本届
 
 ### Discord webhook 403エラー
 未修正。tokens.mdのURLが古い可能性あり。
+
+---
+
+## 2026-06-11 音声尺修正完了
+
+### 完了
+- wav_to_transparent_mp4()を修正：音声秒数ぴったりのMP4を生成するように変更
+- 2.3秒WAV → 2.300秒MP4を確認済み
+- push済み（c06184a）
+
+### 次のアクション
+1. NotionをapprovedにしてMacターミナルで再実行して音声尺が正しくなるか確認
+   source ~/.zshrc && source ~/.zprofile && python3 Projects/dmm-manga-affiliate/Workflows/assembler.py
+2. 音声ミュート問題は引き続き調査（Canva MCPでは解決不可のため別アプローチを検討）
+3. Notion設計変更（タスク確認ボード集約）
