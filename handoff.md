@@ -100,3 +100,28 @@ Notionのapprovedページを取得して以下を自動実行:
 Discord漫画投稿 → queue-processor → タスク確認ボードに台本届く
 → tagishi確認・approved → assembler → タスク確認ボードにCanva URL届く
 → tagishi確認・承認 → YouTube投稿
+
+---
+
+## 2026-06-10 セッション終了時の状態
+
+### 完了したこと
+- Canvaテンプレ確定（DAHKogY0SBo）
+- テキスト書き換え・画像差し込み・コマズーム 動作確認済み
+- Discord→Notion登録フロー 動作確認済み
+- queue-processor.py（brain-worker経由）台本生成 動作確認済み
+- assembler.py Canva動画組み立て 動作確認済み（6割完成度）
+- VOICEVOX 0.25.2 インストール・起動確認済み
+
+### 次回やること（優先順）
+1. VOICEVOX音声生成をassembler.pyに組み込む
+2. Discordのwebhook URL修正（403エラー）
+3. Notion設計変更（handoff.mdに詳細記載済み）
+4. 効果音3種類・アニメーション設計
+
+### VOICEVOX
+- バージョン: 0.25.2
+- ポート: localhost:50021
+- 起動方法: /Applications/VOICEVOX.app
+- assembler.py実行時だけ起動すればOK
+- デフォルトキャラ: 四国めたん（speaker=2）
