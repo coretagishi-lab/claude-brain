@@ -377,9 +377,8 @@ def invoke_claude(prompt: str) -> str:
     return result.stdout.strip()
 
 
-def build_canva_prompt(props: dict, public_image_url: str, telops: list,
-                       video_urls: list = None) -> str:
-    """Canva MCP 操作の詳細指示を作成する。"""
+def build_canva_prompt(props: dict, public_image_url: str, telops: list) -> str:
+    """Canva MCP 操作の詳細指示を作成する（手順1〜10: テンプレコピー〜テロップ書き換え）。"""
 
     telop_ops = "\n".join(
         f"  - element_id: {eid}  →  テキスト: 「{t}」"
@@ -390,27 +389,6 @@ def build_canva_prompt(props: dict, public_image_url: str, telops: list,
         f"  ページ{i+2}: {t}"
         for i, t in enumerate(telops)
     )
-
-    video_section = ""
-    if video_urls and any(video_urls):
-        video_lines = "\n".join(
-            f"  ページ{i+2}: {url}" if url else f"  ページ{i+2}: （スキップ）"
-            for i, url in enumerate(video_urls)
-        )
-        video_section = f"""
-## 手順 11: 透明動画（VOICEVOX 音声）をページに差し込む
-各ページ（2〜9）に対応した MP4 の公開 URL を以下に示します。
-この MP4 は 2x2px の黒フレーム + VOICEVOX 音声トラックです。
-映像を opacity=0（完全透明）で差し込むことで音声のみ再生されます。
-
-{video_lines}
-
-各動画の処理:
-1. `upload-asset-from-url` で MP4 URL をアップロード → asset_id を取得
-2. `perform-editing-operations` で対応ページに差し込み:
-   操作: insert_fill (fill_type: VIDEO, asset_id: <asset_id>)
-3. 配置後に opacity を 0 に設定して透明化する
-"""
 
     return f"""以下の手順で Canva デザインを組み立ててください。
 Canva MCP ツール（mcp__claude_ai_Canva__ 系）を使用してください。
@@ -501,18 +479,53 @@ STATUS=success
 エラーが発生した場合:
 STATUS=error
 ERROR=<エラーの詳細>
-{video_section}"""
+"""
 
 
-def run_canva_assembly(props: dict, public_image_url: str, telops: list,
-                       video_urls: list = None) -> tuple:
-    """
-    claude subprocess で Canva 組み立てを実行。
-    Returns: (design_id, canva_url)
-    """
-    prompt = build_canva_prompt(props, public_image_url, telops, video_urls=video_urls)
-    output = invoke_claude(prompt)
+def build_canva_prompt_audio(design_id: str, video_urls: list) -> str:
+    """Canva MCP 操作の詳細指示（手順11のみ: 透明動画差し込み）。"""
+    video_lines = "\n".join(
+        f"  ページ{i+2}: {url}" if url else f"  ページ{i+2}: （スキップ）"
+        for i, url in enumerate(video_urls)
+    )
+    return f"""既存の Canva デザインに VOICEVOX 音声動画を差し込みます。
+Canva MCP ツール（mcp__claude_ai_Canva__ 系）を使用してください。
 
+## 対象デザイン
+design_id: {design_id}
+
+## 手順 1: 編集トランザクション開始
+`start-editing-transaction` で design_id={design_id} のトランザクションを開始してください。
+
+## 手順 2: 透明動画（VOICEVOX 音声）をページに差し込む
+各ページ（2〜9）に対応した MP4 の公開 URL を以下に示します。
+この MP4 は 2x2px の黒フレーム + VOICEVOX 音声トラックです。
+映像を opacity=0（完全透明）で差し込むことで音声のみ再生されます。
+
+{video_lines}
+
+各動画の処理:
+1. `upload-asset-from-url` で MP4 URL をアップロード → asset_id を取得
+2. `perform-editing-operations` で対応ページに差し込み:
+   操作: insert_fill (fill_type: VIDEO, asset_id: <asset_id>)
+3. 配置後に opacity を 0 に設定して透明化する
+
+## 手順 3: トランザクションをコミット
+`commit-editing-transaction` でトランザクションをコミットしてください。
+
+---
+
+## 完了後の出力（必須）
+STATUS=success
+
+エラーが発生した場合:
+STATUS=error
+ERROR=<エラーの詳細>
+"""
+
+
+def _parse_canva_output(output: str) -> tuple:
+    """claude 出力から (design_id, canva_url) を抽出する。"""
     design_id = ""
     canva_url  = ""
 
@@ -525,17 +538,44 @@ def run_canva_assembly(props: dict, public_image_url: str, telops: list,
         canva_url = m.group(1).strip().rstrip(".,")
 
     if not canva_url:
-        # フォールバック: canva.com URL を探す
         m = re.search(r"https://www\.canva\.com/design/\S+", output)
         if m:
             canva_url = m.group(0).rstrip(".,)")
 
-    if not canva_url and not design_id:
-        raise RuntimeError(f"Canva URL が取得できませんでした。\n出力末尾: {output[-400:]!r}")
-
-    # design_id から URL を構築（canva_url が取れなかった場合のフォールバック）
     if not canva_url and design_id:
         canva_url = f"https://www.canva.com/design/{design_id}/edit"
+
+    return design_id, canva_url
+
+
+def run_canva_assembly(props: dict, public_image_url: str, telops: list,
+                       video_urls: list = None) -> tuple:
+    """
+    claude subprocess を2回に分割して Canva 組み立てを実行。
+      1回目: テンプレコピー・タイトル・画像・テロップ（手順1〜10）
+      2回目: 透明動画差し込み（手順11）※ video_urls がある場合のみ
+    Returns: (design_id, canva_url)
+    """
+    # ── 1回目: メイン組み立て ─────────────────────────────────────────────
+    log("  [1/2] テンプレコピー・タイトル・画像・テロップ...")
+    prompt1  = build_canva_prompt(props, public_image_url, telops)
+    output1  = invoke_claude(prompt1)
+    design_id, canva_url = _parse_canva_output(output1)
+
+    if not design_id:
+        raise RuntimeError(f"design_id が取得できませんでした。\n出力末尾: {output1[-400:]!r}")
+
+    log(f"  [1/2完了] design_id={design_id}")
+
+    # ── 2回目: 音声動画差し込み ───────────────────────────────────────────
+    if video_urls and any(video_urls):
+        log("  [2/2] 透明動画（VOICEVOX 音声）差し込み...")
+        prompt2 = build_canva_prompt_audio(design_id, video_urls)
+        try:
+            invoke_claude(prompt2)
+            log("  [2/2完了] 音声動画差し込み完了")
+        except Exception as e:
+            log(f"  ⚠️  [2/2] 音声差し込み失敗（メイン組み立ては成功済み）: {e}")
 
     return design_id, canva_url
 
@@ -619,7 +659,7 @@ def process_page(props: dict, dry: bool = False) -> bool:
     # ── Canva 組み立て（claude subprocess） ──────────────────────────────
     if dry:
         log("  [DRY] Canva 操作スキップ")
-        log(f"  [DRY] 送信予定プロンプト先頭:\n{build_canva_prompt(props, public_image_url, telops, video_urls=video_urls)[:300]}")
+        log(f"  [DRY] 1回目プロンプト先頭:\n{build_canva_prompt(props, public_image_url, telops)[:300]}")
         return True
 
     log("  🎨 Canva 組み立て開始（claude subprocess）...")
