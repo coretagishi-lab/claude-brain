@@ -102,7 +102,7 @@ def update_to_draft(page_id, content, cost_usd):
     notion("PATCH", f"/blocks/{page_id}/children", {"children": blocks})
 
 
-def register_to_task_board(manga_title, telops, notion_url, cost_usd):
+def register_to_task_board(manga_title, telops, notion_url, cost_usd, page_id):
     """台本完成をタスク確認ボードに「👀 確認待ち」で登録"""
     today = datetime.now().strftime("%Y-%m-%d")
     telop_text = "\n".join([f"{i+1}. {l}" for i, l in enumerate(telops)])
@@ -113,7 +113,7 @@ def register_to_task_board(manga_title, telops, notion_url, cost_usd):
             "プロジェクト名":     {"select": {"name": "DMM漫画アフィリエイト"}},
             "ステータス":         {"select": {"name": "👀 確認待ち"}},
             "作成物":             {"rich_text": rt(telop_text)},
-            "内容要約":           {"rich_text": rt(f"コスト: ${cost_usd:.4f} / 詳細: {notion_url}")},
+            "内容要約":           {"rich_text": rt(f"page_id:{page_id}\nコスト: ${cost_usd:.4f}\n詳細: {notion_url}")},
             "提出日時":           {"date": {"start": today}},
         }
     })
@@ -261,7 +261,7 @@ def main():
         update_to_draft(props["page_id"], content, cost)
 
         notion_url = f"https://app.notion.com/p/{props['page_id'].replace('-', '')}"
-        register_to_task_board(props["manga_title"], content["telops"], notion_url, cost)
+        register_to_task_board(props["manga_title"], content["telops"], notion_url, cost, props["page_id"])
         print(f"  Notion: queued -> draft OK")
         print(f"  タスク確認ボード: 登録OK")
 

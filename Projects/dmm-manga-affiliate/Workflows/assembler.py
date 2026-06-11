@@ -93,6 +93,53 @@ def rt(text):
     return [{"type": "text", "text": {"content": str(text)[:2000]}}]
 
 
+def sync_task_board_approvals(dry: bool = False) -> int:
+    """
+    タスクボードで「✅ 確認済み」になった[台本確認]アイテムを検出し、
+    コンテンツDBを approved に更新する。
+    queue-processor が内容要約に埋め込んだ page_id を使って逆引きする。
+    """
+    _, res = notion("POST", f"/databases/{NOTION_TASK_BOARD_ID}/query", {
+        "filter": {
+            "and": [
+                {"property": "ステータス", "select": {"equals": "✅ 確認済み"}},
+                {"property": "タスク名",   "title":  {"contains": "[台本確認]"}},
+            ]
+        }
+    })
+    items = res.get("results", [])
+    if not items:
+        return 0
+
+    count = 0
+    for item in items:
+        summary = "".join(
+            p.get("plain_text", "")
+            for p in item["properties"].get("内容要約", {}).get("rich_text", [])
+        )
+        m = re.search(r"page_id:([0-9a-f\-]{32,36})", summary)
+        if not m:
+            log(f"  ⚠️  page_id 抽出失敗（内容要約に page_id: がない）: {summary[:80]}")
+            continue
+
+        raw = m.group(1).replace("-", "")
+        page_id = f"{raw[:8]}-{raw[8:12]}-{raw[12:16]}-{raw[16:20]}-{raw[20:]}"
+
+        if not dry:
+            notion("PATCH", f"/pages/{page_id}", {
+                "properties": {"status": {"select": {"name": "approved"}}}
+            })
+            notion("PATCH", f"/pages/{item['id']}", {
+                "properties": {"ステータス": {"select": {"name": "🔄 作成中"}}}
+            })
+            log(f"  ✅ タスクボード→コンテンツDB approved: {page_id[:8]}...")
+        else:
+            log(f"  [DRY] approved に更新するはず: {page_id[:8]}...")
+        count += 1
+
+    return count
+
+
 def get_approved_pages():
     _, res = notion("POST", f"/databases/{NOTION_CONTENT_DB_ID}/query", {
         "filter": {"property": "status", "select": {"equals": "approved"}},
@@ -565,6 +612,11 @@ def main():
         log("⚠️  DRY RUN モード: Notion 更新・Discord 通知はスキップします")
 
     log(f"assembler 起動: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+
+    # タスクボードで「✅ 確認済み」になった[台本確認]をコンテンツDBに反映
+    synced = sync_task_board_approvals(dry=dry)
+    if synced:
+        log(f"タスクボード承認同期: {synced}件 → コンテンツDB approved 更新済み")
 
     pages = get_approved_pages()
     if not pages:
