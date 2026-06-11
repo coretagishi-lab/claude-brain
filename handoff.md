@@ -189,37 +189,43 @@ python3 Projects/dmm-manga-affiliate/Workflows/assembler.py --finalize \
 
 ---
 
-## 2026-06-11 音声問題の現状（未解決）
+## 2026-06-11 音声問題（確定: 手動対応）
 
-### 問題
-Canvaに透明MP4（VOICEVOX音声入り）をinsert_fillで差し込むと音声が出ない。
-opacity=0.01にしても出ない。透明度100%にしても出ない。
-オーディオツールで音声抽出すると聞こえる→音声データは正常に入っている。
-
-### 試したこと
-- insert_fill + opacity=0 → 音声なし
-- insert_fill + opacity=0.01 → 音声なし
-- WAV直接アップロード → Canva MCP非対応
-- MP3直接アップロード → Canva MCP非対応
-
-### 未調査（次のチャットで必ずやること）
-- insert_fillで差し込んだ動画がなぜCanvaでミュート扱いになるのか根本原因を調査
-- ffmpegで生成したMP4の形式・コーデックが問題の可能性（AAC/H.264の設定）
-- Canvaが動画をミュートで読み込む条件を調査（自動再生ポリシー等）
-- 解決策を見つけるまで諦めない
+### 決定事項
+Canva への音声自動差し込みは断念。
+Canvaで手動で音声を追加する運用に確定。自動化対象から除外。
 
 ### 現在の自動化の完成度
-✅ 台本生成（brain-worker）
+✅ 台本生成（queue-processor.py / brain-worker経由）
 ✅ テロップ書き換え
 ✅ 画像差し込み・コマズーム
-✅ 透明MP4差し込み（音声は出ていない状態）
 ✅ Notion更新・タスク確認ボード登録
-⚠️ Discord webhook 403（tokens.md更新が必要）
-❌ 音声再生（未解決）
-❌ ページ表示時間の自動調整（Canva MCP非対応）
+✅ Discord webhook（VPS・Mac両方 204確認済み）
+✅ --dry オプション（queue-processor.py・assembler.py両方対応済み）
+✅ やり直し指示の優先使用（assembler.py: タスクボードのやり直し指示欄 → script上書き）
+⚠️ 音声: Canvaで手動対応（自動化対象外）
+❌ ページ表示時間の自動調整（Canva MCP非対応・対応予定なし）
 
-### 次のチャットの最初にやること
-1. insert_fillで差し込んだ動画がミュートになる原因をネットで徹底調査
-2. 原因を特定してffmpegのMP4生成設定を修正
-3. 解決できたらDiscord webhook修正
-4. その後Notion設計変更
+---
+
+## 2026-06-11 本日の作業まとめ
+
+### 完了した修正
+1. **queue-processor.py**: `--dry` オプション追加（argparse）
+   - ドライラン時はNotion更新・Claude呼び出しなしで対象件数だけ表示
+2. **Discord webhook**: VPS tokens.md・assembler.py・Mac環境変数すべて同一URL・204確認済み
+3. **assembler.py**: タスクボード「やり直し指示」欄の優先使用を実装
+   - `sync_task_board_approvals` でやり直し指示があればコンテンツDBの `script` を上書きしてから `approved` に更新
+
+---
+
+## 次のチャットでやること
+
+### 最優先: 通しテスト1本
+1. Discordの #dmm-素材投稿 に漫画画像を投稿
+2. Notionに登録されたことを確認（status: queued）
+3. `python3 Projects/dmm-manga-affiliate/Workflows/queue-processor.py` で台本生成
+4. タスク確認ボードで台本を確認・「✅ 確認済み」に変更
+5. `python3 Projects/dmm-manga-affiliate/Workflows/assembler.py` でCanvaジョブ出力
+6. Canva MCP でテンプレ組み立て → 音声は手動で追加
+7. `python3 assembler.py --finalize ...` でNotion・タスクボード更新

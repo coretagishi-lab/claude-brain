@@ -6,7 +6,7 @@ STEP 3: Notionキュー（status:queued）を処理
   - Notionをstatus:draftに更新
   - タスク確認ボードに「👀 確認待ち」で登録
 """
-import base64, json, os, re, subprocess, sys, tempfile, urllib.request, urllib.error
+import argparse, base64, json, os, re, subprocess, sys, tempfile, urllib.request, urllib.error
 from datetime import datetime
 from pathlib import Path
 
@@ -220,12 +220,18 @@ def calc_cost(in_tok, out_tok):
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Notionキュー処理スクリプト")
+    parser.add_argument("--dry", action="store_true", help="ドライラン: Notion更新・Claude呼び出しを行わず対象件数だけ表示")
+    args = parser.parse_args()
+
     missing = [k for k in ["NOTION_TOKEN", "NOTION_CONTENT_DB_ID"]
                if not os.environ.get(k)]
     if missing:
         print(f"[queue-processor] 環境変数未設定: {', '.join(missing)}")
         sys.exit(1)
 
+    if args.dry:
+        print(f"[queue-processor] DRY RUN モード（Notion更新・Claude呼び出しなし）")
     print(f"[queue-processor] 開始: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
 
     pages = get_queued_pages()
@@ -234,6 +240,14 @@ def main():
         return
 
     print(f"[queue-processor] queued件数: {len(pages)}")
+
+    if args.dry:
+        for page in pages:
+            props = extract_props(page)
+            print(f"  - {props['manga_title'] or '(タイトル未設定)'}  画像: {props['image_url'] or 'なし'}")
+        print("[queue-processor] DRY RUN 終了（何も変更していません）")
+        return
+
     experience_rules = load_experience_rules()
     total_cost = 0.0
 

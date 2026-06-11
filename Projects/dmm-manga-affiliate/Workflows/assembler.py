@@ -125,15 +125,24 @@ def sync_task_board_approvals(dry: bool = False) -> int:
         raw = m.group(1).replace("-", "")
         page_id = f"{raw[:8]}-{raw[8:12]}-{raw[12:16]}-{raw[16:20]}-{raw[20:]}"
 
+        yarinaoshi = "".join(
+            p.get("plain_text", "")
+            for p in item["properties"].get("やり直し指示", {}).get("rich_text", [])
+        ).strip()
+
         if not dry:
-            notion("PATCH", f"/pages/{page_id}", {
-                "properties": {"status": {"select": {"name": "approved"}}}
-            })
+            content_props = {"status": {"select": {"name": "approved"}}}
+            if yarinaoshi:
+                content_props["script"] = {"rich_text": [{"type": "text", "text": {"content": yarinaoshi[:2000]}}]}
+                log(f"  📝 やり直し指示あり → script を上書き: {yarinaoshi[:50]}...")
+            notion("PATCH", f"/pages/{page_id}", {"properties": content_props})
             notion("PATCH", f"/pages/{item['id']}", {
                 "properties": {"ステータス": {"select": {"name": "🔄 作成中"}}}
             })
             log(f"  ✅ タスクボード→コンテンツDB approved: {page_id[:8]}...")
         else:
+            if yarinaoshi:
+                log(f"  [DRY] やり直し指示あり → script 上書きするはず: {yarinaoshi[:50]}...")
             log(f"  [DRY] approved に更新するはず: {page_id[:8]}...")
         count += 1
 
