@@ -38,9 +38,10 @@ POLL_INTERVAL  = 30   # 秒
 CLAUDE_TIMEOUT = 300  # 秒（Claude の応答待ち上限）
 
 # 送信済みページID（セッション中に同じページを再送しない）
-# 成功時: Notion status が "draft" になるため自然に queued クエリから外れる
+# 成功時: Notion status が変わるため自然にクエリから外れる
 # 失敗時: _in_flight に残すことで連続再送を防ぐ（再試行は brain-worker 再起動で）
-_in_flight: set = set()
+_in_flight: set          = set()   # queued → 台本生成
+_in_flight_assembly: set = set()   # approved → Canva組み立て
 
 
 # ── ユーティリティ ────────────────────────────────────────────────────────
@@ -76,6 +77,14 @@ def rt(text):
 def get_queued_pages():
     _, res = notion("POST", f"/databases/{NOTION_CONTENT_DB_ID}/query", {
         "filter": {"property": "status", "select": {"equals": "queued"}},
+        "sorts":  [{"property": "created_at", "direction": "ascending"}],
+    })
+    return res.get("results", [])
+
+
+def get_approved_pages():
+    _, res = notion("POST", f"/databases/{NOTION_CONTENT_DB_ID}/query", {
+        "filter": {"property": "status", "select": {"equals": "approved"}},
         "sorts":  [{"property": "created_at", "direction": "ascending"}],
     })
     return res.get("results", [])
@@ -306,46 +315,70 @@ def job_generate_script(props: dict) -> bool:
     return True
 
 
+def job_assemble_video(props: dict) -> bool:
+    """approved ページを assembler.py に渡して Canva 組み立てを実行する。"""
+    assembler = VAULT / "Projects" / "dmm-manga-affiliate" / "Workflows" / "assembler.py"
+    env = os.environ.copy()
+    env["NOTION_CONTENT_DB_ID"] = NOTION_CONTENT_DB_ID
+    log(f"  🎨 assembler.py 起動: {props['manga_title']}")
+    result = subprocess.run(
+        [sys.executable, str(assembler)],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=900,
+    )
+    for line in result.stdout.splitlines():
+        log(f"  [assembler] {line}")
+    if result.returncode != 0:
+        for line in result.stderr.splitlines():
+            log(f"  [assembler ERR] {line}")
+        raise RuntimeError(f"assembler.py 失敗 (exit {result.returncode})")
+    log(f"  ✅ {props['manga_title']} → Canva組み立て完了")
+    return True
+
+
 # ── ポーリングループ ────────────────────────────────────────────────────────
 def poll_once():
-    """
-    1サイクル分の処理。新しいジョブを追加するときはここに追記する。
-
-    追加例（将来）:
-      approved = get_approved_pages()
-      if approved:
-          pending = [p for p in approved if p["id"] not in _in_flight]
-          if pending:
-              _in_flight.add(pending[0]["id"])
-              job_assemble_video(extract_props(pending[0]))
-    """
+    """1サイクル分の処理。"""
     # ── ジョブ1: queued → テロップ台本生成 ──────────────────────────────
     all_queued = get_queued_pages()
+    pending_scripts = [p for p in all_queued if p["id"] not in _in_flight]
 
-    if not all_queued:
-        log("queued: 0件 | Claude を呼ばずに待機")
-        return
-
-    pending = [p for p in all_queued if p["id"] not in _in_flight]
-    if not pending:
+    if pending_scripts:
+        page  = pending_scripts[0]
+        props = extract_props(page)
+        remaining = len(pending_scripts) - 1
+        log(f"queued: {len(all_queued)}件 | 処理開始: 「{props['manga_title'] or '(タイトル未設定)'}」"
+            + (f" | 残り {remaining}件は次回" if remaining else ""))
+        _in_flight.add(props["page_id"])
+        try:
+            job_generate_script(props)
+        except Exception as e:
+            log(f"  ❌ 失敗: {e}")
+            log("  → Notion の該当ページを確認してください。再試行は brain-worker 再起動で。")
+    elif all_queued:
         log(f"queued: {len(all_queued)}件 (すべて送信済み) | スキップ")
-        return
+    else:
+        log("queued: 0件 | 待機")
 
-    page = pending[0]
-    props = extract_props(page)
-    remaining = len(pending) - 1
+    # ── ジョブ2: approved → Canva 組み立て ──────────────────────────────
+    all_approved = get_approved_pages()
+    pending_assembly = [p for p in all_approved if p["id"] not in _in_flight_assembly]
 
-    log(f"queued: {len(all_queued)}件 | 処理開始: 「{props['manga_title'] or '(タイトル未設定)'}」"
-        + (f" | 残り {remaining}件は次回" if remaining else ""))
-
-    # 送信前に登録（失敗時も再送しない）
-    _in_flight.add(props["page_id"])
-
-    try:
-        job_generate_script(props)
-    except Exception as e:
-        log(f"  ❌ 失敗: {e}")
-        log("  → Notion の該当ページを確認してください。再試行は brain-worker 再起動で。")
+    if pending_assembly:
+        page  = pending_assembly[0]
+        props = extract_props(page)
+        remaining = len(pending_assembly) - 1
+        log(f"approved: {len(all_approved)}件 | 組み立て開始: 「{props['manga_title'] or '(タイトル未設定)'}」"
+            + (f" | 残り {remaining}件は次回" if remaining else ""))
+        _in_flight_assembly.add(props["page_id"])
+        try:
+            job_assemble_video(props)
+        except Exception as e:
+            log(f"  ❌ 組み立て失敗: {e}")
+    elif all_approved:
+        log(f"approved: {len(all_approved)}件 (すべて処理中) | スキップ")
 
 
 def main():

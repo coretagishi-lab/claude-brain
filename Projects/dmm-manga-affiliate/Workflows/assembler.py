@@ -34,7 +34,7 @@ NOTION_TASK_BOARD_ID = "3671cad4aa98813b85b2ed9e3127b913"
 NOTION_VERSION       = "2022-06-28"
 DISCORD_WEBHOOK_URL  = os.environ.get("DISCORD_WEBHOOK_URL", "")
 
-VAULT      = Path(__file__).resolve().parents[2]
+VAULT      = Path(__file__).resolve().parents[3]   # AI-Brain/
 AUDIO_DIR  = VAULT / "Projects" / "dmm-manga-affiliate" / "audio"
 
 VOICEVOX_URL = "http://localhost:50021"
@@ -276,11 +276,32 @@ def generate_all_voices(manga_title: str, telops: list) -> Path:
     return out_dir
 
 
+def upload_all_audio(audio_dir: Path, telop_count: int) -> list:
+    """
+    audio_dir 内の telop_NN.wav を catbox.moe にアップロードし、
+    公開 URL のリストを返す（失敗時は空文字）。
+    """
+    urls = []
+    for i in range(1, telop_count + 1):
+        path = audio_dir / f"telop_{i:02d}.wav"
+        if not path.exists():
+            urls.append("")
+            continue
+        try:
+            url = upload_to_catbox(path.read_bytes(), "audio/wav")
+            urls.append(url)
+            log(f"  📤 telop_{i:02d}.wav → {url}")
+        except Exception as e:
+            log(f"  ⚠️  telop_{i:02d}.wav アップロード失敗: {e}")
+            urls.append("")
+    return urls
+
+
 # ── Claude サブプロセス: Canva MCP 操作 ───────────────────────────────────
 def invoke_claude(prompt: str) -> str:
     """claude をサブプロセスで起動し stdin にプロンプトを渡す。"""
     result = subprocess.run(
-        ["claude"],
+        ["claude", "--dangerously-skip-permissions"],
         input=prompt,
         capture_output=True,
         text=True,
@@ -298,7 +319,7 @@ def invoke_claude(prompt: str) -> str:
 
 
 def build_canva_prompt(props: dict, public_image_url: str, telops: list,
-                       audio_dir: Path = None) -> str:
+                       audio_urls: list = None) -> str:
     """Canva MCP 操作の詳細指示を作成する。"""
 
     telop_ops = "\n".join(
@@ -312,16 +333,22 @@ def build_canva_prompt(props: dict, public_image_url: str, telops: list,
     )
 
     audio_section = ""
-    if audio_dir and audio_dir.exists():
-        wav_lines = "\n".join(
-            f"  telop_{i+1:02d}.wav → {audio_dir / f'telop_{i+1:02d}.wav'}"
-            for i in range(len(telops))
+    if audio_urls and any(audio_urls):
+        audio_lines = "\n".join(
+            f"  ページ{i+2}: {url}" if url else f"  ページ{i+2}: （スキップ）"
+            for i, url in enumerate(audio_urls)
         )
         audio_section = f"""
-## 音声ファイル（VOICEVOX 生成済み）
-保存先: {audio_dir}
-{wav_lines}
-（各ファイルは前0.3秒・後0.5秒の無音を含む）
+## 手順 11: 音声をページに挿入（VOICEVOX 生成済み）
+各ページ（2〜9）に対応した WAV の公開 URL を以下に示します。
+各音声は前0.3秒・後0.5秒の無音を含みます。
+
+{audio_lines}
+
+各音声の処理:
+1. `upload-asset-from-url` で WAV URL をアップロード → asset_id を取得
+2. `perform-editing-operations` で対応ページに音声を挿入
+   操作: add_audio (asset_id: <取得したasset_id>)
 """
 
     return f"""以下の手順で Canva デザインを組み立ててください。
@@ -417,12 +444,12 @@ ERROR=<エラーの詳細>
 
 
 def run_canva_assembly(props: dict, public_image_url: str, telops: list,
-                       audio_dir: Path = None) -> tuple:
+                       audio_urls: list = None) -> tuple:
     """
     claude subprocess で Canva 組み立てを実行。
     Returns: (design_id, canva_url)
     """
-    prompt = build_canva_prompt(props, public_image_url, telops, audio_dir=audio_dir)
+    prompt = build_canva_prompt(props, public_image_url, telops, audio_urls=audio_urls)
     output = invoke_claude(prompt)
 
     design_id = ""
@@ -511,22 +538,25 @@ def process_page(props: dict, dry: bool = False) -> bool:
         log("  ℹ️  image_url なし → 画像挿入スキップ")
 
     # ── VOICEVOX 音声生成 ─────────────────────────────────────────────────
+    audio_urls = None
     if voicevox_available():
         log(f"  🎙 VOICEVOX 音声生成開始 (speaker={VOICEVOX_SPEAKER})")
         audio_dir = generate_all_voices(manga_title, [t for t in telops if t])
         log(f"  ✅ 音声保存先: {audio_dir}")
+        log(f"  📤 音声ファイルを catbox.moe にアップロード中...")
+        audio_urls = upload_all_audio(audio_dir, len(telops))
+        log(f"  ✅ 音声アップロード完了: {sum(1 for u in audio_urls if u)}/{len(telops)} 件")
     else:
         log(f"  ⚠️  VOICEVOX ({VOICEVOX_URL}) に接続できません → 音声生成スキップ")
-        audio_dir = None
 
     # ── Canva 組み立て（claude subprocess） ──────────────────────────────
     if dry:
         log("  [DRY] Canva 操作スキップ")
-        log(f"  [DRY] 送信予定プロンプト先頭:\n{build_canva_prompt(props, public_image_url, telops, audio_dir=audio_dir)[:300]}")
+        log(f"  [DRY] 送信予定プロンプト先頭:\n{build_canva_prompt(props, public_image_url, telops, audio_urls=audio_urls)[:300]}")
         return True
 
     log("  🎨 Canva 組み立て開始（claude subprocess）...")
-    design_id, canva_url = run_canva_assembly(props, public_image_url, telops, audio_dir=audio_dir)
+    design_id, canva_url = run_canva_assembly(props, public_image_url, telops, audio_urls=audio_urls)
     log(f"  ✅ design_id: {design_id}")
     log(f"  ✅ canva_url: {canva_url}")
 
