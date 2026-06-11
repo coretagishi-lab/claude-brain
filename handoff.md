@@ -186,3 +186,40 @@ python3 Projects/dmm-manga-affiliate/Workflows/assembler.py --finalize \
 1. Canvaで音声が実際に再生されるか確認（ミュート問題の検証）
 2. Discord webhook URLを更新（tokens.mdを修正）
 3. Notion設計変更（タスク確認ボード集約）
+
+---
+
+## 2026-06-11 音声問題の現状（未解決）
+
+### 問題
+Canvaに透明MP4（VOICEVOX音声入り）をinsert_fillで差し込むと音声が出ない。
+opacity=0.01にしても出ない。透明度100%にしても出ない。
+オーディオツールで音声抽出すると聞こえる→音声データは正常に入っている。
+
+### 試したこと
+- insert_fill + opacity=0 → 音声なし
+- insert_fill + opacity=0.01 → 音声なし
+- WAV直接アップロード → Canva MCP非対応
+- MP3直接アップロード → Canva MCP非対応
+
+### 未調査（次のチャットで必ずやること）
+- insert_fillで差し込んだ動画がなぜCanvaでミュート扱いになるのか根本原因を調査
+- ffmpegで生成したMP4の形式・コーデックが問題の可能性（AAC/H.264の設定）
+- Canvaが動画をミュートで読み込む条件を調査（自動再生ポリシー等）
+- 解決策を見つけるまで諦めない
+
+### 現在の自動化の完成度
+✅ 台本生成（brain-worker）
+✅ テロップ書き換え
+✅ 画像差し込み・コマズーム
+✅ 透明MP4差し込み（音声は出ていない状態）
+✅ Notion更新・タスク確認ボード登録
+⚠️ Discord webhook 403（tokens.md更新が必要）
+❌ 音声再生（未解決）
+❌ ページ表示時間の自動調整（Canva MCP非対応）
+
+### 次のチャットの最初にやること
+1. insert_fillで差し込んだ動画がミュートになる原因をネットで徹底調査
+2. 原因を特定してffmpegのMP4生成設定を修正
+3. 解決できたらDiscord webhook修正
+4. その後Notion設計変更
