@@ -38,7 +38,7 @@ VAULT      = Path(__file__).resolve().parents[2]
 AUDIO_DIR  = VAULT / "Projects" / "dmm-manga-affiliate" / "audio"
 
 VOICEVOX_URL = "http://localhost:50021"
-VOICEVOX_SPEAKER = 2   # めたん
+VOICEVOX_SPEAKER = 47  # ナースロボ＿タイプT ノーマル（アカウントごとに変更可）
 
 CLAUDE_TIMEOUT = 600   # Canva 操作は時間がかかるため長めに設定
 
