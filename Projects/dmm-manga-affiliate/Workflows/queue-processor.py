@@ -173,48 +173,59 @@ def fetch_image_b64(url):
 
 
 def load_experience_rules():
+    """experience.md からテロップ生成ルール＋改善ルールを読み込む"""
     if not EXPERIENCE_FILE.exists():
-        return ""
+        return "", ""
     text = EXPERIENCE_FILE.read_text(encoding="utf-8")
-    m = re.search(r"## 改善ルール.*?(?=\n## |\Z)", text, re.DOTALL)
-    if m:
-        rules = m.group(0).strip()
-        return "" if "まだ蓄積なし" in rules else rules
-    return ""
+
+    # テロップ生成ルール（確定ルール）
+    m_telop = re.search(r"## テロップ生成ルール.*?(?=\n## |\Z)", text, re.DOTALL)
+    telop_rules = m_telop.group(0).strip() if m_telop else ""
+
+    # 改善ルール（週次分析で蓄積）
+    m_improve = re.search(r"## 改善ルール（蓄積から導出）.*?(?=\n## |\Z)", text, re.DOTALL)
+    improve_rules = ""
+    if m_improve:
+        r = m_improve.group(0).strip()
+        improve_rules = "" if "まだ蓄積なし" in r else r
+
+    return telop_rules, improve_rules
 
 
 def generate_content(manga_title, affiliate_url, image_b64, image_type, experience_rules):
-    system_prompt = """あなたはDMMアフィリエイト漫画動画のテロップライターです。
-漫画画像を読んでストーリーを把握し、8行のテロップ台本を生成します。
+    telop_rules, improve_rules = experience_rules  # unpack tuple
 
-【ルール】
-- テロップは体言止め・各15文字以内
-- ①〜⑧の順でストーリーの流れに沿って
-- 冒頭①②は主人公の状況・感情（フック）
-- ③〜⑥は展開・山場
-- ⑦⑧は結末・余韻（続きが気になる終わり方）
-- VOICEVOXで読み上げるので自然な日本語で"""
+    system_prompt = f"""あなたはDMMアフィリエイト漫画動画のテロップライターです。
+漫画画像を読んでコマの内容・状況・感情を把握し、8行のテロップ台本を生成します。
 
-    if experience_rules:
-        system_prompt += f"\n\n【改善ルール】\n{experience_rules}"
+{telop_rules}
+
+【出力形式】
+- telops はセリフ形式・①〜⑧の番号付き・「」不要
+- 各テロップは20文字以内・VOICEVOXで自然に読める日本語
+- youtube_title は60文字以内・断言形・【漫画】タグ付き
+- description は250文字以内・煽り文 + アフィURL"""
+
+    if improve_rules:
+        system_prompt += f"\n\n【週次改善ルール】\n{improve_rules}"
 
     user_text = f"""漫画タイトル: {manga_title}
 アフィリエイトURL: {affiliate_url or "（未設定）"}
 
-この漫画画像を読んでテロップ台本を生成してください。
+漫画のコマ画像を読み込んで、コマの状況・感情を各行に反映したテロップを生成してください。
 JSONのみ出力（説明不要）:
 {{
   "youtube_title": "（60文字以内・断言形・【漫画】タグ付き）",
   "description": "（250文字以内・煽り文 + アフィURL）",
   "telops": [
-    "①テロップ（15文字以内・体言止め）",
-    "②テロップ",
-    "③テロップ",
-    "④テロップ",
-    "⑤テロップ",
-    "⑥テロップ",
-    "⑦テロップ",
-    "⑧テロップ"
+    "①セリフ",
+    "②セリフ",
+    "③セリフ",
+    "④セリフ",
+    "⑤セリフ",
+    "⑥セリフ",
+    "⑦セリフ",
+    "⑧セリフ"
   ]
 }}"""
 
