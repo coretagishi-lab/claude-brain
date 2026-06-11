@@ -145,15 +145,37 @@ Discord漫画投稿 → queue-processor → タスク確認ボードに台本届
 
 ---
 
-## 2026-06-11 音声尺修正完了
+## 2026-06-11 Canva subprocess → Claude Code直接操作に変更
 
 ### 完了
-- wav_to_transparent_mp4()を修正：音声秒数ぴったりのMP4を生成するように変更
-- 2.3秒WAV → 2.300秒MP4を確認済み
-- push済み（c06184a）
+- 音声尺確認済み: WAV/MP4の差分が最大0.011秒（フレーム境界精度）→ 正常
+- assembler.pyをリファクタリング（b4d4bde）:
+  - 削除: invoke_claude / build_canva_prompt / run_canva_assembly 等
+  - 追加: save_canva_job（canva_job.json出力）/ finalize_canva（後処理）
+
+### 新しい実行手順（重要）
+
+**ステップ1**: assembler.pyを実行（VOICEVOX起動必要）
+```bash
+source ~/.zshrc && source ~/.zprofile
+python3 Projects/dmm-manga-affiliate/Workflows/assembler.py
+# → CANVA_JOB_FILE=/path/to/canva_job.json が出力される
+```
+
+**ステップ2**: Claude CodeセッションでcanvaジョブJSONを読み、Canva MCPを直接操作
+- canva_job.jsonにテンプレID・テロップ・音声URL・durations等がすべて入っている
+- このセッションのCanva MCP（mcp__claude_ai_Canva__）を使って組み立て
+
+**ステップ3**: Canva完了後にfinalizeを実行
+```bash
+python3 Projects/dmm-manga-affiliate/Workflows/assembler.py --finalize \
+  --state-file=<canva_job.jsonのパス> \
+  --design-id=<新しいdesign_id> \
+  --canva-url=<CanvaのURL>
+```
+→ Notion更新・タスクボード登録・Discord通知・メディアファイル削除
 
 ### 次のアクション
-1. NotionをapprovedにしてMacターミナルで再実行して音声尺が正しくなるか確認
-   source ~/.zshrc && source ~/.zprofile && python3 Projects/dmm-manga-affiliate/Workflows/assembler.py
-2. 音声ミュート問題は引き続き調査（Canva MCPでは解決不可のため別アプローチを検討）
+1. 次のapprovedページで新フローを通しテスト
+2. 音声ミュート問題（Canva側の制約）→ 別アプローチ検討
 3. Notion設計変更（タスク確認ボード集約）
