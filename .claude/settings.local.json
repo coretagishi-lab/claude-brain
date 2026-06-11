@@ -1,17 +1,4 @@
 {
-  "hooks": {
-    "Stop": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/Users/tagishitakuya/Desktop/ClaudeProjects/AI-Brain/Shared/Workflows/notion-sync-hook.sh"
-          }
-        ]
-      }
-    ]
-  },
   "permissions": {
     "allow": [
       "Bash(NOTION_TOKEN=\"ntn_H7697902232dcdxNos161tlzGsMg1aSf16vYvaqv6Ni2X0\" /Users/tagishitakuya/Desktop/ClaudeProjects/AI-Brain/Shared/Workflows/notion-sync.sh *)",
@@ -50,7 +37,22 @@
       "Bash(say -v '?')",
       "Bash(curl *)",
       "Bash(ffmpeg -y -ss 5 -i /tmp/dmm-manga-video/dmm-manga-A-2026-05-22-01-v2.mp4 -vframes 1 /tmp/dmm-manga-video/v2_preview.jpg)",
-      "Bash(ffmpeg -y -ss 20 -i /tmp/dmm-manga-video/dmm-manga-A-2026-05-22-01-v2.mp4 -vframes 1 /tmp/dmm-manga-video/v2_preview2.jpg)"
+      "Bash(ffmpeg -y -ss 20 -i /tmp/dmm-manga-video/dmm-manga-A-2026-05-22-01-v2.mp4 -vframes 1 /tmp/dmm-manga-video/v2_preview2.jpg)",
+      "Bash(rm -f /private/tmp/claude-501/-Users-tagishitakuya-Desktop-ClaudeProjects-AI-Brain/87fee22a-d168-49b6-8197-578648cca3fb/tasks/*)",
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\('/Users/tagishitakuya/Desktop/ClaudeProjects/AI-Brain/Projects/dmm-manga-affiliate/Workflows/assembler.py'\\).read\\(\\)\\); print\\('syntax OK'\\)\")"
+    ]
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/tagishitakuya/Desktop/ClaudeProjects/AI-Brain/Shared/Workflows/notion-sync-hook.sh"
+          }
+        ]
+      }
     ]
   }
 }

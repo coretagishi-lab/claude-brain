@@ -60,8 +60,16 @@ TELOP_ELEM_IDS = [
     "PBpYZmnGCfCLdFFC-LBzvFjt040LjCkN6",  # ⑧ ページ9
 ]
 
-IMAGE_SLOT_P2 = "PBG3BLhBZW05Kb0W-LBLG8GxWtKLtPZcZ"  # ページ2 画像スロット
-# ページ3〜9 の画像スロット ID は Canva 操作時に get-design-pages で動的取得
+IMAGE_SLOT_IDS = [
+    "PBG3BLhBZW05Kb0W-LBLG8GxWtKLtPZcZ",  # ページ2
+    "PBCSwpnm9S6QVHtJ-LBdQhQ9QLg702226",  # ページ3
+    "PBjDNccpBqWtybYQ-LBDvNMjX4StVB5GM",  # ページ4
+    "PBvxHVxQT8c46KWb-LBH6QJ9htKbKFffb",  # ページ5
+    "PBw7ntJLPN1YXxv3-LB51rhY8PMFFZ0yM",  # ページ6
+    "PBwNd5vms7mw2gXb-LB5vg7qKZDrynCgY",  # ページ7
+    "PBkLftpwjtcRJDvs-LBbb8hbVDTZV2dnn",  # ページ8
+    "PBpYZmnGCfCLdFFC-LBlSnf96nnXyTVR8",  # ページ9
+]
 
 
 # ── ユーティリティ ────────────────────────────────────────────────────────
@@ -83,7 +91,7 @@ def notion(method, path, data=None):
             "Content-Type":   "application/json",
         })
     try:
-        with urllib.request.urlopen(req) as res:
+        with urllib.request.urlopen(req, timeout=30) as res:
             return res.status, json.loads(res.read())
     except urllib.error.HTTPError as e:
         return e.code, json.loads(e.read().decode())
@@ -93,11 +101,11 @@ def rt(text):
     return [{"type": "text", "text": {"content": str(text)[:2000]}}]
 
 
-def sync_task_board_approvals(dry: bool = False) -> int:
+def sync_task_board_approvals(dry: bool = False) -> dict:
     """
     タスクボードで「✅ 確認済み」になった[台本確認]アイテムを検出し、
     コンテンツDBを approved に更新する。
-    queue-processor が内容要約に埋め込んだ page_id を使って逆引きする。
+    Returns: {page_id: yarinaoshi_text} — やり直し指示がない場合は空文字
     """
     _, res = notion("POST", f"/databases/{NOTION_TASK_BOARD_ID}/query", {
         "filter": {
@@ -109,9 +117,9 @@ def sync_task_board_approvals(dry: bool = False) -> int:
     })
     items = res.get("results", [])
     if not items:
-        return 0
+        return {}
 
-    count = 0
+    overrides = {}
     for item in items:
         summary = "".join(
             p.get("plain_text", "")
@@ -132,21 +140,20 @@ def sync_task_board_approvals(dry: bool = False) -> int:
 
         if not dry:
             content_props = {"status": {"select": {"name": "approved"}}}
-            if yarinaoshi:
-                content_props["script"] = {"rich_text": [{"type": "text", "text": {"content": yarinaoshi[:2000]}}]}
-                log(f"  📝 やり直し指示あり → script を上書き: {yarinaoshi[:50]}...")
             notion("PATCH", f"/pages/{page_id}", {"properties": content_props})
             notion("PATCH", f"/pages/{item['id']}", {
                 "properties": {"ステータス": {"select": {"name": "🔄 作成中"}}}
             })
+            if yarinaoshi:
+                log(f"  📝 やり直し指示あり → script を直接上書き: {yarinaoshi[:50]}...")
             log(f"  ✅ タスクボード→コンテンツDB approved: {page_id[:8]}...")
         else:
             if yarinaoshi:
                 log(f"  [DRY] やり直し指示あり → script 上書きするはず: {yarinaoshi[:50]}...")
             log(f"  [DRY] approved に更新するはず: {page_id[:8]}...")
-        count += 1
+        overrides[page_id] = yarinaoshi
 
-    return count
+    return overrides
 
 
 def get_approved_pages():
@@ -279,14 +286,6 @@ def voicevox_available() -> bool:
         return False
 
 
-def ffmpeg_available() -> bool:
-    try:
-        subprocess.run(["ffmpeg", "-version"], capture_output=True, check=True, timeout=5)
-        return True
-    except Exception:
-        return False
-
-
 def generate_voice(text: str, speaker: int = VOICEVOX_SPEAKER) -> bytes:
     """VOICEVOX で音声を生成して WAV バイト列を返す。"""
     # Step 1: audio_query
@@ -342,52 +341,6 @@ def generate_all_voices(manga_title: str, telops: list) -> Path:
     return out_dir
 
 
-def wav_to_transparent_mp4(wav_path: Path) -> Path:
-    """
-    WAV の正確な長さに合わせた 1080x1920px 黒フレーム MP4 を生成する。
-    ffprobe で音声秒数を取得し、その秒数ぴったりの動画を生成する。
-    """
-    mp4_path = wav_path.with_suffix(".mp4")
-
-    # ffprobe で正確な音声秒数を取得
-    probe = subprocess.run([
-        "ffprobe", "-v", "quiet",
-        "-show_entries", "format=duration",
-        "-of", "default=noprint_wrappers=1:nokey=1",
-        str(wav_path),
-    ], capture_output=True, text=True, check=True, timeout=10)
-    duration = probe.stdout.strip()
-
-    subprocess.run([
-        "ffmpeg", "-y",
-        "-f", "lavfi", "-i", f"color=black:size=1080x1920:rate=30:duration={duration}",
-        "-i", str(wav_path),
-        "-t", duration,
-        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-tune", "stillimage",
-        "-c:a", "aac", "-b:a", "128k",
-        str(mp4_path),
-    ], capture_output=True, check=True, timeout=60)
-    return mp4_path
-
-
-def convert_all_to_mp4(audio_dir: Path, telop_count: int) -> list:
-    """audio_dir 内の telop_NN.wav を MP4 に変換し、Path リストを返す。"""
-    paths = []
-    for i in range(1, telop_count + 1):
-        wav = audio_dir / f"telop_{i:02d}.wav"
-        if not wav.exists():
-            paths.append(None)
-            continue
-        try:
-            mp4 = wav_to_transparent_mp4(wav)
-            paths.append(mp4)
-            log(f"  🎬 telop_{i:02d}.mp4 変換完了 ({mp4.stat().st_size // 1024}KB)")
-        except Exception as e:
-            log(f"  ⚠️  telop_{i:02d} MP4変換失敗: {e}")
-            paths.append(None)
-    return paths
-
-
 def get_all_durations(audio_dir: Path, telop_count: int) -> list:
     """各テロップ WAV の再生時間（前後無音込み）を秒単位で返す。"""
     durations = []
@@ -402,46 +355,26 @@ def get_all_durations(audio_dir: Path, telop_count: int) -> list:
     return durations
 
 
-def upload_all_video(audio_dir: Path, mp4_paths: list) -> list:
-    """
-    MP4 ファイルを catbox.moe にアップロードし公開 URL リストを返す。
-    mp4_paths は convert_all_to_mp4() の戻り値（None は空文字に変換）。
-    """
-    urls = []
-    for i, mp4 in enumerate(mp4_paths, 1):
-        if mp4 is None or not mp4.exists():
-            urls.append("")
-            continue
-        try:
-            url = upload_to_catbox(mp4.read_bytes(), "video/mp4")
-            urls.append(url)
-            log(f"  📤 telop_{i:02d}.mp4 → {url}")
-        except Exception as e:
-            log(f"  ⚠️  telop_{i:02d}.mp4 アップロード失敗: {e}")
-            urls.append("")
-    return urls
-
-
 def cleanup_media_files(audio_dir: Path):
-    """audio_dir 内の WAV / MP4 ファイルを削除し、空になったディレクトリも削除する。"""
+    """audio_dir 内の WAV ファイルを削除し、空になったディレクトリも削除する。"""
     if not audio_dir or not audio_dir.exists():
         return
     deleted = 0
     for f in audio_dir.iterdir():
-        if f.suffix in (".wav", ".mp4"):
+        if f.suffix == ".wav":
             f.unlink()
             deleted += 1
     try:
         audio_dir.rmdir()  # 空ならディレクトリごと削除
     except OSError:
         pass
-    log(f"  🗑  メディアファイル削除: {deleted}件 ({audio_dir.name})")
+    log(f"  🗑  WAVファイル削除: {deleted}件 ({audio_dir.name})")
 
 
 # ── Canva ジョブ管理 ──────────────────────────────────────────────────────
 
 def save_canva_job(props: dict, public_image_url: str, telops: list,
-                   durations: list, video_urls: list, audio_dir) -> Path:
+                   durations: list, audio_dir) -> Path:
     """
     Canva 組み立てに必要なデータを JSON ファイルに保存する。
     Claude Code セッションがこのファイルを読み、Canva MCP を直接操作する。
@@ -449,18 +382,20 @@ def save_canva_job(props: dict, public_image_url: str, telops: list,
     """
     out_dir    = Path(audio_dir) if audio_dir else AUDIO_DIR
     state_file = out_dir / "canva_job.json"
+    # image_urls: 全ページに同じ漫画画像を配置（8スロット分）
+    image_urls = [public_image_url] * len(IMAGE_SLOT_IDS)
     state = {
         "page_id":          props["page_id"],
         "manga_title":      props["manga_title"],
         "public_image_url": public_image_url,
         "telops":           telops,
         "durations":        durations,
-        "video_urls":       video_urls,
+        "image_urls":       image_urls,
         "audio_dir":        str(out_dir),
         "template_id":      TEMPLATE_ID,
         "elem_manga_title": ELEM_MANGA_TITLE,
         "telop_elem_ids":   TELOP_ELEM_IDS,
-        "image_slot_p2":    IMAGE_SLOT_P2,
+        "image_slot_ids":   IMAGE_SLOT_IDS,
     }
     state_file.write_text(json.dumps(state, ensure_ascii=False, indent=2))
     return state_file
@@ -547,24 +482,15 @@ def process_page(props: dict, dry: bool = False) -> bool:
     else:
         log("  ℹ️  image_url なし → 画像挿入スキップ")
 
-    # ── VOICEVOX 音声生成 + ffmpeg MP4変換 ───────────────────────────────
-    audio_dir  = None
-    video_urls = None
-    durations  = None
+    # ── VOICEVOX 音声生成 ─────────────────────────────────────────────────
+    audio_dir = None
+    durations = None
     if voicevox_available():
         log(f"  🎙 VOICEVOX 音声生成開始 (speaker={VOICEVOX_SPEAKER})")
         audio_dir = generate_all_voices(manga_title, [t for t in telops if t])
         log(f"  ✅ 音声保存先: {audio_dir}")
         durations = get_all_durations(audio_dir, len(telops))
         log(f"  ⏱  ページ表示時間: {durations}")
-        if ffmpeg_available():
-            log(f"  🎬 ffmpeg: WAV → 透明MP4 変換中...")
-            mp4_paths = convert_all_to_mp4(audio_dir, len(telops))
-            log(f"  📤 MP4 を catbox.moe にアップロード中...")
-            video_urls = upload_all_video(audio_dir, mp4_paths)
-            log(f"  ✅ 動画アップロード完了: {sum(1 for u in video_urls if u)}/{len(telops)} 件")
-        else:
-            log(f"  ⚠️  ffmpeg が見つかりません → MP4変換スキップ")
     else:
         log(f"  ⚠️  VOICEVOX ({VOICEVOX_URL}) に接続できません → 音声生成スキップ")
 
@@ -574,7 +500,7 @@ def process_page(props: dict, dry: bool = False) -> bool:
         return True
 
     state_file = save_canva_job(
-        props, public_image_url, telops, durations or [], video_urls or [], audio_dir
+        props, public_image_url, telops, durations or [], audio_dir
     )
     log(f"  📋 Canvaジョブ保存: {state_file}")
     print(f"\nCANVA_JOB_FILE={state_file}", flush=True)
@@ -623,9 +549,9 @@ def main():
     log(f"assembler 起動: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
 
     # タスクボードで「✅ 確認済み」になった[台本確認]をコンテンツDBに反映
-    synced = sync_task_board_approvals(dry=dry)
-    if synced:
-        log(f"タスクボード承認同期: {synced}件 → コンテンツDB approved 更新済み")
+    overrides = sync_task_board_approvals(dry=dry)
+    if overrides:
+        log(f"タスクボード承認同期: {len(overrides)}件 → コンテンツDB approved 更新済み")
 
     pages = get_approved_pages()
     if not pages:
@@ -637,6 +563,10 @@ def main():
 
     for page in pages:
         props = extract_props(page)
+        yarinaoshi = overrides.get(props["page_id"], "")
+        if yarinaoshi:
+            props = dict(props)
+            props["script"] = yarinaoshi
         try:
             result = process_page(props, dry=dry)
             if result is not False:

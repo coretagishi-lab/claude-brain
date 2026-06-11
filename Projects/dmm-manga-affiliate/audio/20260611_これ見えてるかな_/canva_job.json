@@ -1,0 +1,40 @@
+{
+  "page_id": "37b1cad4-aa98-817e-969c-e10e20b08ca4",
+  "manga_title": "これ見えてるかな？",
+  "public_image_url": "",
+  "telops": [
+    "これ、見えてるかな…？",
+    "気づかないフリの彼女",
+    "二人きりの放課後",
+    "縮まっていく距離",
+    "バレてる視線",
+    "逃げ場のない沈黙",
+    "見えてたよ、ずっと",
+    "溶けていく二人の夜"
+  ],
+  "durations": [2.85, 2.53, 2.39, 2.26, 1.97, 2.34, 2.81, 2.5],
+  "video_urls": [
+    "https://files.catbox.moe/0sy4yp.mp4",
+    "https://files.catbox.moe/s9bgos.mp4",
+    "https://files.catbox.moe/i42kuf.mp4",
+    "https://files.catbox.moe/vs6ueq.mp4",
+    "https://files.catbox.moe/xpwzme.mp4",
+    "https://files.catbox.moe/64i531.mp4",
+    "https://files.catbox.moe/l43ikd.mp4",
+    "https://files.catbox.moe/fjziqq.mp4"
+  ],
+  "audio_dir": "/Users/tagishitakuya/Desktop/ClaudeProjects/AI-Brain/Projects/dmm-manga-affiliate/audio/20260611_これ見えてるかな_",
+  "template_id": "DAHKogY0SBo",
+  "elem_manga_title": "PBs1sTlCLqHDSG14-LBrqdhnZYLPRPyJX",
+  "telop_elem_ids": [
+    "PBG3BLhBZW05Kb0W-LBhlvQNP9s6Wmwvr",
+    "PBCSwpnm9S6QVHtJ-LBff234VHn89xWtW",
+    "PBjDNccpBqWtybYQ-LBxsBSg503sFyjyQ",
+    "PBvxHVxQT8c46KWb-LBHJq4nGtPjjtjnV",
+    "PBw7ntJLPN1YXxv3-LB7D7v0gRPY16KGC",
+    "PBwNd5vms7mw2gXb-LBg46mQW7DYvYrS2",
+    "PBkLftpwjtcRJDvs-LB2Dj8TSWKB0CnvR",
+    "PBpYZmnGCfCLdFFC-LBzvFjt040LjCkN6"
+  ],
+  "image_slot_p2": "PBG3BLhBZW05Kb0W-LBLG8GxWtKLtPZcZ"
+}
