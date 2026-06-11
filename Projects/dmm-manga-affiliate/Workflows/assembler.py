@@ -61,7 +61,7 @@ TELOP_ELEM_IDS = [
 ]
 
 IMAGE_SLOT_IDS = [
-    "PBG3BLhBZW05Kb0W-LBLG8GxWtKLtPZcZ",  # ページ2
+    "PBG3BLhBZW05Kb0W-LBLG8GxWtKLtPZcZ",  # ページ2（コマ画像スロット）
     "PBCSwpnm9S6QVHtJ-LBdQhQ9QLg702226",  # ページ3
     "PBjDNccpBqWtybYQ-LBDvNMjX4StVB5GM",  # ページ4
     "PBvxHVxQT8c46KWb-LBH6QJ9htKbKFffb",  # ページ5
@@ -70,6 +70,9 @@ IMAGE_SLOT_IDS = [
     "PBkLftpwjtcRJDvs-LBbb8hbVDTZV2dnn",  # ページ8
     "PBpYZmnGCfCLdFFC-LBlSnf96nnXyTVR8",  # ページ9
 ]
+
+# ページ10（エンドページ）カバー画像スロット
+END_PAGE_COVER_SLOT_ID = "PBQRTjML4Gm5msr7-LBB8BKH3dpcWzwx8"
 
 
 # ── ユーティリティ ────────────────────────────────────────────────────────
@@ -278,6 +281,14 @@ def upload_to_catbox(image_bytes: bytes, content_type: str) -> str:
 
 
 # ── VOICEVOX ─────────────────────────────────────────────────────────────
+def ffmpeg_available() -> bool:
+    try:
+        subprocess.run(["ffmpeg", "-version"], capture_output=True, check=True, timeout=5)
+        return True
+    except Exception:
+        return False
+
+
 def voicevox_available() -> bool:
     try:
         with urllib.request.urlopen(f"{VOICEVOX_URL}/version", timeout=3):
@@ -355,26 +366,88 @@ def get_all_durations(audio_dir: Path, telop_count: int) -> list:
     return durations
 
 
+def wav_to_transparent_mp4(wav_path: Path) -> Path:
+    """
+    WAV の正確な長さに合わせた 1080x1920px 黒フレーム MP4 を生成する。
+    ffprobe で音声秒数を取得し、その秒数ぴったりの動画を生成する。
+    """
+    mp4_path = wav_path.with_suffix(".mp4")
+
+    probe = subprocess.run([
+        "ffprobe", "-v", "quiet",
+        "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1",
+        str(wav_path),
+    ], capture_output=True, text=True, check=True, timeout=10)
+    duration = probe.stdout.strip()
+
+    subprocess.run([
+        "ffmpeg", "-y",
+        "-f", "lavfi", "-i", f"color=black:size=1080x1920:rate=30:duration={duration}",
+        "-i", str(wav_path),
+        "-t", duration,
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-tune", "stillimage",
+        "-c:a", "aac", "-b:a", "128k",
+        str(mp4_path),
+    ], capture_output=True, check=True, timeout=60)
+    return mp4_path
+
+
+def convert_all_to_mp4(audio_dir: Path, telop_count: int) -> list:
+    """audio_dir 内の telop_NN.wav を MP4 に変換し、Path リストを返す。"""
+    paths = []
+    for i in range(1, telop_count + 1):
+        wav = audio_dir / f"telop_{i:02d}.wav"
+        if not wav.exists():
+            paths.append(None)
+            continue
+        try:
+            mp4 = wav_to_transparent_mp4(wav)
+            paths.append(mp4)
+            log(f"  🎬 telop_{i:02d}.mp4 変換完了 ({mp4.stat().st_size // 1024}KB)")
+        except Exception as e:
+            log(f"  ⚠️  telop_{i:02d} MP4変換失敗: {e}")
+            paths.append(None)
+    return paths
+
+
+def upload_all_video(audio_dir: Path, mp4_paths: list) -> list:
+    """MP4 ファイルを catbox.moe にアップロードし公開 URL リストを返す。"""
+    urls = []
+    for i, mp4 in enumerate(mp4_paths, 1):
+        if mp4 is None or not mp4.exists():
+            urls.append("")
+            continue
+        try:
+            url = upload_to_catbox(mp4.read_bytes(), "video/mp4")
+            urls.append(url)
+            log(f"  📤 telop_{i:02d}.mp4 → {url}")
+        except Exception as e:
+            log(f"  ⚠️  telop_{i:02d}.mp4 アップロード失敗: {e}")
+            urls.append("")
+    return urls
+
+
 def cleanup_media_files(audio_dir: Path):
-    """audio_dir 内の WAV ファイルを削除し、空になったディレクトリも削除する。"""
+    """audio_dir 内の WAV / MP4 ファイルを削除し、空になったディレクトリも削除する。"""
     if not audio_dir or not audio_dir.exists():
         return
     deleted = 0
     for f in audio_dir.iterdir():
-        if f.suffix == ".wav":
+        if f.suffix in (".wav", ".mp4"):
             f.unlink()
             deleted += 1
     try:
         audio_dir.rmdir()  # 空ならディレクトリごと削除
     except OSError:
         pass
-    log(f"  🗑  WAVファイル削除: {deleted}件 ({audio_dir.name})")
+    log(f"  🗑  メディアファイル削除: {deleted}件 ({audio_dir.name})")
 
 
 # ── Canva ジョブ管理 ──────────────────────────────────────────────────────
 
 def save_canva_job(props: dict, public_image_url: str, telops: list,
-                   durations: list, audio_dir) -> Path:
+                   durations: list, video_urls: list, audio_dir) -> Path:
     """
     Canva 組み立てに必要なデータを JSON ファイルに保存する。
     Claude Code セッションがこのファイルを読み、Canva MCP を直接操作する。
@@ -382,20 +455,19 @@ def save_canva_job(props: dict, public_image_url: str, telops: list,
     """
     out_dir    = Path(audio_dir) if audio_dir else AUDIO_DIR
     state_file = out_dir / "canva_job.json"
-    # image_urls: 全ページに同じ漫画画像を配置（8スロット分）
-    image_urls = [public_image_url] * len(IMAGE_SLOT_IDS)
     state = {
-        "page_id":          props["page_id"],
-        "manga_title":      props["manga_title"],
-        "public_image_url": public_image_url,
-        "telops":           telops,
-        "durations":        durations,
-        "image_urls":       image_urls,
-        "audio_dir":        str(out_dir),
-        "template_id":      TEMPLATE_ID,
-        "elem_manga_title": ELEM_MANGA_TITLE,
-        "telop_elem_ids":   TELOP_ELEM_IDS,
-        "image_slot_ids":   IMAGE_SLOT_IDS,
+        "page_id":               props["page_id"],
+        "manga_title":           props["manga_title"],
+        "public_image_url":      public_image_url,
+        "telops":                telops,
+        "durations":             durations,
+        "video_urls":            video_urls,
+        "audio_dir":             str(out_dir),
+        "template_id":           TEMPLATE_ID,
+        "elem_manga_title":      ELEM_MANGA_TITLE,
+        "telop_elem_ids":        TELOP_ELEM_IDS,
+        "image_slot_ids":        IMAGE_SLOT_IDS,
+        "end_page_cover_slot_id": END_PAGE_COVER_SLOT_ID,
     }
     state_file.write_text(json.dumps(state, ensure_ascii=False, indent=2))
     return state_file
@@ -482,15 +554,24 @@ def process_page(props: dict, dry: bool = False) -> bool:
     else:
         log("  ℹ️  image_url なし → 画像挿入スキップ")
 
-    # ── VOICEVOX 音声生成 ─────────────────────────────────────────────────
-    audio_dir = None
-    durations = None
+    # ── VOICEVOX 音声生成 + ffmpeg MP4変換 ───────────────────────────────
+    audio_dir  = None
+    video_urls = None
+    durations  = None
     if voicevox_available():
         log(f"  🎙 VOICEVOX 音声生成開始 (speaker={VOICEVOX_SPEAKER})")
         audio_dir = generate_all_voices(manga_title, [t for t in telops if t])
         log(f"  ✅ 音声保存先: {audio_dir}")
         durations = get_all_durations(audio_dir, len(telops))
         log(f"  ⏱  ページ表示時間: {durations}")
+        if ffmpeg_available():
+            log(f"  🎬 ffmpeg: WAV → 透明MP4 変換中...")
+            mp4_paths = convert_all_to_mp4(audio_dir, len(telops))
+            log(f"  📤 MP4 を catbox.moe にアップロード中...")
+            video_urls = upload_all_video(audio_dir, mp4_paths)
+            log(f"  ✅ 動画アップロード完了: {sum(1 for u in video_urls if u)}/{len(telops)} 件")
+        else:
+            log(f"  ⚠️  ffmpeg が見つかりません → MP4変換スキップ")
     else:
         log(f"  ⚠️  VOICEVOX ({VOICEVOX_URL}) に接続できません → 音声生成スキップ")
 
@@ -500,7 +581,7 @@ def process_page(props: dict, dry: bool = False) -> bool:
         return True
 
     state_file = save_canva_job(
-        props, public_image_url, telops, durations or [], audio_dir
+        props, public_image_url, telops, durations or [], video_urls or [], audio_dir
     )
     log(f"  📋 Canvaジョブ保存: {state_file}")
     print(f"\nCANVA_JOB_FILE={state_file}", flush=True)
