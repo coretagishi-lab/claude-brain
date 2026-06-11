@@ -286,18 +286,27 @@ def generate_all_voices(manga_title: str, telops: list) -> Path:
 
 def wav_to_transparent_mp4(wav_path: Path) -> Path:
     """
-    WAV を 1080x1920px 黒フレーム（縦型）+ 音声トラックの MP4 に変換する。
-    Canva が標準動画として認識し音声を再生できるよう、フルサイズ縦型に変更。
-    opacity=0.01 で差し込むことで映像はほぼ不可視・音声のみ再生される。
+    WAV の正確な長さに合わせた 1080x1920px 黒フレーム MP4 を生成する。
+    ffprobe で音声秒数を取得し、その秒数ぴったりの動画を生成する。
     """
     mp4_path = wav_path.with_suffix(".mp4")
+
+    # ffprobe で正確な音声秒数を取得
+    probe = subprocess.run([
+        "ffprobe", "-v", "quiet",
+        "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1",
+        str(wav_path),
+    ], capture_output=True, text=True, check=True, timeout=10)
+    duration = probe.stdout.strip()
+
     subprocess.run([
         "ffmpeg", "-y",
-        "-f", "lavfi", "-i", "color=black:size=1080x1920:rate=30",
+        "-f", "lavfi", "-i", f"color=black:size=1080x1920:rate=30:duration={duration}",
         "-i", str(wav_path),
+        "-t", duration,
         "-c:v", "libx264", "-pix_fmt", "yuv420p", "-tune", "stillimage",
         "-c:a", "aac", "-b:a", "128k",
-        "-shortest",
         str(mp4_path),
     ], capture_output=True, check=True, timeout=60)
     return mp4_path
