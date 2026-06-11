@@ -175,7 +175,14 @@ python3 Projects/dmm-manga-affiliate/Workflows/assembler.py --finalize \
 ```
 → Notion更新・タスクボード登録・Discord通知・メディアファイル削除
 
+### 通しテスト結果（2026-06-11）
+✅ 新フロー全工程動作確認済み
+- design_id: DAHMPmDAskw
+- Canva編集URL: https://www.canva.com/d/Y5zwevqMNOw8SNZ
+- Notion: canva_ready更新済み / タスク確認ボード登録済み
+- ⚠️ Discord webhook 403エラー（tokens.mdのURL期限切れ）
+
 ### 次のアクション
-1. 次のapprovedページで新フローを通しテスト
-2. 音声ミュート問題（Canva側の制約）→ 別アプローチ検討
+1. Canvaで音声が実際に再生されるか確認（ミュート問題の検証）
+2. Discord webhook URLを更新（tokens.mdを修正）
 3. Notion設計変更（タスク確認ボード集約）
