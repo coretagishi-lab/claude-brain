@@ -9,3 +9,7 @@ __pycache__/
 .DS_Store
 *.log
 *.err
+
+# 音声・メディアファイル
+*.wav
+audio/
