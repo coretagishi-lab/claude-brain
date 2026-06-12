@@ -338,12 +338,15 @@ def add_silence_padding(wav_path: Path, pre_sec: float = 0.3, post_sec: float = 
 
 
 def parse_gender_prefix(telop: str) -> tuple:
-    """♂/♀プレフィックスを検出してspeaker IDとクリーンテキストを返す。"""
+    """♂/♀プレフィックスを検出してspeaker IDとクリーンテキストを返す。丸数字も除去。"""
     if telop.startswith("♂"):
-        return VOICEVOX_SPEAKER_MALE, telop[1:].lstrip()
-    if telop.startswith("♀"):
-        return VOICEVOX_SPEAKER_FEMALE, telop[1:].lstrip()
-    return VOICEVOX_SPEAKER_FEMALE, telop
+        speaker, text = VOICEVOX_SPEAKER_MALE, telop[1:].lstrip()
+    elif telop.startswith("♀"):
+        speaker, text = VOICEVOX_SPEAKER_FEMALE, telop[1:].lstrip()
+    else:
+        speaker, text = VOICEVOX_SPEAKER_FEMALE, telop
+    text = re.sub(r'^[①②③④⑤⑥⑦⑧⑨⑩]\s*', '', text)
+    return speaker, text
 
 
 def generate_all_voices(manga_title: str, telops: list) -> Path:

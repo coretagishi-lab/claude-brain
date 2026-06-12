@@ -59,54 +59,68 @@ def extract_page_id(summary):
     return f"{raw[:8]}-{raw[8:12]}-{raw[12:16]}-{raw[16:20]}-{raw[20:]}"
 
 
-def poll():
-    _, res = notion("POST", f"/databases/{TASK_BOARD_ID}/query", {
-        "filter": {"and": [
-            {"property": "ステータス", "select": {"equals": "✅ 確認済み"}},
-            {"property": "タスク名",   "title":  {"contains": "[台本確認]"}},
-        ]}
-    })
-    items = res.get("results", [])
+def poll_task(task_type, items):
     for item in items:
         task_id    = item["id"]
         task_title = "".join(p.get("plain_text", "") for p in item["properties"]["タスク名"]["title"])
         summary    = "".join(p.get("plain_text", "") for p in item["properties"].get("内容要約", {}).get("rich_text", []))
         yarinaoshi = "".join(p.get("plain_text", "") for p in item["properties"].get("やり直し指示", {}).get("rich_text", [])).strip()
 
-        content_page_id = extract_page_id(summary)
-        if not content_page_id:
-            ts = datetime.now().strftime("%H:%M:%S")
-            print(f"[{ts}] ⚠️  page_id抽出失敗: {summary[:60]}", flush=True)
-            continue
-
-        # やり直し指示があればscriptを上書き
-        if yarinaoshi:
-            notion("PATCH", f"/pages/{content_page_id}", {
-                "properties": {"script": {"rich_text": rt(yarinaoshi)}}
-            })
-
-        # コンテンツDBをapprovedに更新
-        notion("PATCH", f"/pages/{content_page_id}", {
-            "properties": {"status": {"select": {"name": "approved"}}}
-        })
-
-        # タスクボードを「🔄 作成中」に変更（再検出防止）
+        # タスクボードを即「🔄 作成中」に変更（再検出防止）
         notion("PATCH", f"/pages/{task_id}", {
             "properties": {"ステータス": {"select": {"name": "🔄 作成中"}}}
         })
 
         ts = datetime.now().strftime("%H:%M:%S")
-        has_override = " (やり直し指示あり)" if yarinaoshi else ""
-        print(f"[{ts}] 検知 → approved更新{has_override}: {task_title}", flush=True)
 
-        # Outboxに待機タスク登録
-        subprocess.run([
-            "python3", REPORTER,
-            "--title",  f"assembler実行待ち: {task_title}",
-            "--detail", f"content_page_id:{content_page_id}\n{summary}",
-            "--action", "Mac Claude Code: python3 Projects/dmm-manga-affiliate/Workflows/assembler.py を実行してCanva組み立てを行う",
-            "--source", "dmm-notion-watcher",
-        ], timeout=15)
+        if task_type == "台本確認":
+            content_page_id = extract_page_id(summary)
+            if not content_page_id:
+                print(f"[{ts}] ⚠️  page_id抽出失敗: {summary[:60]}", flush=True)
+                continue
+            if yarinaoshi:
+                notion("PATCH", f"/pages/{content_page_id}", {
+                    "properties": {"script": {"rich_text": rt(yarinaoshi)}}
+                })
+            notion("PATCH", f"/pages/{content_page_id}", {
+                "properties": {"status": {"select": {"name": "approved"}}}
+            })
+            has_override = " (やり直し指示あり)" if yarinaoshi else ""
+            print(f"[{ts}] [台本確認] 検知 → approved更新{has_override}: {task_title}", flush=True)
+            subprocess.run([
+                "python3", REPORTER,
+                "--title",  f"assembler実行待ち: {task_title}",
+                "--detail", f"content_page_id:{content_page_id}\n{summary}",
+                "--action", "Mac Claude Code: assembler.py を実行してCanva組み立てを行う",
+                "--source", "dmm-notion-watcher",
+            ], timeout=15)
+
+        elif task_type == "Canva確認":
+            has_override = " (やり直し指示あり)" if yarinaoshi else ""
+            print(f"[{ts}] [Canva確認] 検知{has_override}: {task_title}", flush=True)
+            detail = summary
+            if yarinaoshi:
+                detail += f"\nやり直し指示: {yarinaoshi}"
+            subprocess.run([
+                "python3", REPORTER,
+                "--title",  f"ffmpeg動画生成待ち: {task_title}",
+                "--detail", detail,
+                "--action", "Mac Claude Code: Canva透過PNGエクスポート → ffmpeg動画生成 → 動画確認タスク登録",
+                "--source", "dmm-notion-watcher",
+            ], timeout=15)
+
+
+def poll():
+    for task_type in ["台本確認", "Canva確認"]:
+        _, res = notion("POST", f"/databases/{TASK_BOARD_ID}/query", {
+            "filter": {"and": [
+                {"property": "ステータス", "select": {"equals": "✅ 確認済み"}},
+                {"property": "タスク名",   "title":  {"contains": f"[{task_type}]"}},
+            ]}
+        })
+        items = res.get("results", [])
+        if items:
+            poll_task(task_type, items)
 
 
 def main():
