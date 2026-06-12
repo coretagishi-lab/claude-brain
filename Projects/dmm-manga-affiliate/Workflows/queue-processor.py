@@ -56,7 +56,7 @@ def extract_props(page):
         "page_id":       page["id"],
         "manga_title":   txt("manga_title"),
         "affiliate_url": (page["properties"].get("affiliate_url") or {}).get("url") or "",
-        "image_url":     (page["properties"].get("image_url") or {}).get("url") or "",
+        "image_url":     "".join(p.get("plain_text", "") for p in (page["properties"].get("image_url") or {}).get("rich_text", [])),
     }
 
 

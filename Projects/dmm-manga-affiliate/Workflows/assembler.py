@@ -185,7 +185,7 @@ def extract_props(page):
         "youtube_title": txt("youtube_title"),
         "description":   txt("description"),
         "script":        txt("script"),
-        "image_url":     (page["properties"].get("image_url") or {}).get("url") or "",
+        "image_url":     "".join(p.get("plain_text", "") for p in (page["properties"].get("image_url") or {}).get("rich_text", [])),
         "affiliate_url": (page["properties"].get("affiliate_url") or {}).get("url") or "",
     }
 
