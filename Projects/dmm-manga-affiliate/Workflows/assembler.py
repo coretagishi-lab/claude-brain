@@ -48,8 +48,9 @@ DISCORD_WEBHOOK_URL  = os.environ.get("DISCORD_WEBHOOK_URL", "")
 VAULT      = Path(__file__).resolve().parents[3]   # AI-Brain/
 AUDIO_DIR  = VAULT / "Projects" / "dmm-manga-affiliate" / "audio"
 
-VOICEVOX_URL = "http://localhost:50021"
-VOICEVOX_SPEAKER = 47  # ナースロボ＿タイプT ノーマル（アカウントごとに変更可）
+VOICEVOX_URL            = "http://localhost:50021"
+VOICEVOX_SPEAKER_FEMALE = 47  # ナースロボ＿タイプT ノーマル（♀ or マーカーなし）
+VOICEVOX_SPEAKER_MALE   = 13  # 青山龍星 ノーマル（♂）
 
 # ── Canva テンプレート情報（handoff.md より） ──────────────────────────────
 TEMPLATE_ID = "DAHKogY0SBo"
@@ -336,10 +337,19 @@ def add_silence_padding(wav_path: Path, pre_sec: float = 0.3, post_sec: float = 
         w.writeframes(pre + pcm_data + post)
 
 
+def parse_gender_prefix(telop: str) -> tuple:
+    """♂/♀プレフィックスを検出してspeaker IDとクリーンテキストを返す。"""
+    if telop.startswith("♂"):
+        return VOICEVOX_SPEAKER_MALE, telop[1:].lstrip()
+    if telop.startswith("♀"):
+        return VOICEVOX_SPEAKER_FEMALE, telop[1:].lstrip()
+    return VOICEVOX_SPEAKER_FEMALE, telop
+
+
 def generate_all_voices(manga_title: str, telops: list) -> Path:
     """
     テロップ全行の音声を生成して audio/{safe_title}/ ディレクトリに保存。
-    各 WAV の前後に無音（前0.3秒・後0.5秒）を挿入する。
+    ♂/♀プレフィックスで話者を切り替え、前後に無音を挿入する。
     Returns: 保存先ディレクトリ
     """
     safe = re.sub(r'[^\w\-_]', '_', manga_title)[:40]
@@ -348,12 +358,16 @@ def generate_all_voices(manga_title: str, telops: list) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     for i, telop in enumerate(telops, 1):
+        speaker, text = parse_gender_prefix(telop)
+        if not text:
+            continue
         path = out_dir / f"telop_{i:02d}.wav"
+        gender_label = "♂" if speaker == VOICEVOX_SPEAKER_MALE else "♀"
         try:
-            wav = generate_voice(telop)
+            wav = generate_voice(text, speaker)
             path.write_bytes(wav)
             add_silence_padding(path)
-            log(f"  🎙 telop_{i:02d}.wav 生成完了 ({len(telop)}文字、前0.3s+後0.5s無音挿入)")
+            log(f"  🎙 telop_{i:02d}.wav 生成完了 {gender_label}({len(text)}文字)")
         except Exception as e:
             log(f"  ⚠️  telop_{i:02d} 音声生成失敗: {e}")
 

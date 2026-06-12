@@ -210,6 +210,9 @@ def generate_content(manga_title, affiliate_url, img_paths, experience_rules):
 【出力形式】
 - telops はセリフ形式・①〜⑧の番号付き・「」不要
 - 各テロップは20文字以内・VOICEVOXで自然に読める日本語
+- 男女の掛け合いシーンは行頭に♂（男性）または♀（女性）を付ける
+  例: ♂ お前のこと、ずっと好きだった / ♀ えっ…急にどうしたの
+  一人語りシーンはマーカー不要
 - youtube_title は60文字以内・断言形・【漫画】タグ付き
 - description は250文字以内・煽り文 + アフィURL"""
 
