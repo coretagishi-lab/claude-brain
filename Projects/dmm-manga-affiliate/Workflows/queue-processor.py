@@ -158,18 +158,25 @@ def notify_discord(manga_title, page_id):
         print(f"  ⚠️  Discord通知失敗: {e}")
 
 
-def fetch_image_b64(url):
-    if not url:
-        return None, None
-    try:
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=15) as res:
-            content_type = res.headers.get("content-type", "image/jpeg").split(";")[0].strip()
-            data = res.read()
-        return base64.b64encode(data).decode(), content_type
-    except Exception as e:
-        print(f"  画像取得失敗: {e}")
-        return None, None
+def fetch_images_to_dir(image_url_str, tmp_dir):
+    """スペース区切りのURL群を全てダウンロードしてtmp_dirに保存。保存パスのリストを返す。"""
+    urls = [u.strip() for u in image_url_str.split() if u.strip()]
+    paths = []
+    for i, url in enumerate(urls, 1):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=15) as res:
+                ct = res.headers.get("content-type", "image/jpeg").split(";")[0].strip()
+                data = res.read()
+            ext = ct.split("/")[-1].replace("jpeg", "jpg")
+            path = os.path.join(tmp_dir, f"manga_{i:02d}.{ext}")
+            with open(path, "wb") as f:
+                f.write(data)
+            paths.append(path)
+            print(f"  画像{i}取得OK: manga_{i:02d}.{ext}")
+        except Exception as e:
+            print(f"  画像{i}取得失敗: {e}")
+    return paths
 
 
 def load_experience_rules():
@@ -192,8 +199,8 @@ def load_experience_rules():
     return telop_rules, improve_rules
 
 
-def generate_content(manga_title, affiliate_url, image_b64, image_type, experience_rules):
-    telop_rules, improve_rules = experience_rules  # unpack tuple
+def generate_content(manga_title, affiliate_url, img_paths, experience_rules):
+    telop_rules, improve_rules = experience_rules
 
     system_prompt = f"""あなたはDMMアフィリエイト漫画動画のテロップライターです。
 漫画画像を読んでコマの内容・状況・感情を把握し、8行のテロップ台本を生成します。
@@ -209,10 +216,13 @@ def generate_content(manga_title, affiliate_url, image_b64, image_type, experien
     if improve_rules:
         system_prompt += f"\n\n【週次改善ルール】\n{improve_rules}"
 
+    files_desc = "\n".join(f"- {p}" for p in img_paths) if img_paths else "（画像なし）"
     user_text = f"""漫画タイトル: {manga_title}
 アフィリエイトURL: {affiliate_url or "（未設定）"}
 
-漫画のコマ画像を読み込んで、コマの状況・感情を各行に反映したテロップを生成してください。
+以下の漫画画像ファイルを全て読み込んで、コマの状況・感情を各行に反映したテロップを生成してください。
+{files_desc}
+
 JSONのみ出力（説明不要）:
 {{
   "youtube_title": "（60文字以内・断言形・【漫画】タグ付き）",
@@ -229,36 +239,24 @@ JSONのみ出力（説明不要）:
   ]
 }}"""
 
-    tmp_img = None
     try:
-        if image_b64:
-            ext = (image_type or "image/jpeg").split("/")[-1].replace("jpeg", "jpg")
-            fd, tmp_img = tempfile.mkstemp(suffix=f".{ext}")
-            os.close(fd)
-            with open(tmp_img, "wb") as f:
-                f.write(base64.b64decode(image_b64))
-            stdin_prompt = f"画像ファイル {tmp_img} を読んでテロップ台本を生成してください。\n\n{user_text}"
+        if img_paths:
+            tmp_dir = os.path.dirname(img_paths[0])
             cmd = [
                 "claude", "-p",
                 "--system-prompt", system_prompt,
-                "--add-dir", os.path.dirname(tmp_img),
+                "--add-dir", tmp_dir,
                 "--allowedTools", "Read",
             ]
         else:
-            stdin_prompt = user_text
             cmd = ["claude", "-p", "--system-prompt", system_prompt]
 
-        print(f"  [debug] cmd: {cmd}")
-        result = subprocess.run(cmd, input=stdin_prompt, capture_output=True, text=True, timeout=120)
-        print(f"  [debug] returncode: {result.returncode}")
-        print(f"  [debug] stdout: {result.stdout[:500]!r}")
-        print(f"  [debug] stderr: {result.stderr[:500]!r}")
+        result = subprocess.run(cmd, input=user_text, capture_output=True, text=True, timeout=120)
         if result.returncode != 0:
-            raise RuntimeError(f"claude failed (exit {result.returncode})")
+            raise RuntimeError(f"claude failed (exit {result.returncode}): {result.stderr[:200]}")
         text = result.stdout.strip()
     finally:
-        if tmp_img and os.path.exists(tmp_img):
-            os.unlink(tmp_img)
+        pass
 
     m = re.search(r"```json\s*(.*?)\s*```", text, re.DOTALL)
     json_text = m.group(1) if m else re.search(r"\{.*\}", text, re.DOTALL).group(0)
@@ -305,17 +303,21 @@ def main():
         props = extract_props(page)
         print(f"\n  {props['manga_title'] or '(タイトル未設定)'}")
 
-        img_b64, img_type = fetch_image_b64(props["image_url"])
-        print(f"  画像: {'OK' if img_b64 else 'NG（テキストのみ）'}")
+        tmp_dir = tempfile.mkdtemp(prefix="queue_imgs_")
+        img_paths = fetch_images_to_dir(props["image_url"], tmp_dir) if props["image_url"] else []
+        print(f"  画像: {len(img_paths)}枚取得")
 
         try:
             content, in_tok, out_tok = generate_content(
                 props["manga_title"], props["affiliate_url"],
-                img_b64, img_type, experience_rules,
+                img_paths, experience_rules,
             )
         except Exception as e:
             print(f"  生成失敗: {e}")
             continue
+        finally:
+            import shutil
+            shutil.rmtree(tmp_dir, ignore_errors=True)
 
         cost = calc_cost(in_tok, out_tok)
         total_cost += cost
