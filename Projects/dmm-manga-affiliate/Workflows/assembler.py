@@ -56,7 +56,7 @@ VOICEVOX_SPEAKER_MALE   = 13  # 青山龍星 ノーマル（♂）
 TEMPLATE_ID = "DAHKogY0SBo"
 
 TELOP_ELEM_IDS = [
-    "PBG3BLhBZW05Kb0W-LBhlvQNP9s6Wmwvr",  # ① ページ2
+    "PBG3BLhBZW05Kb0W-LBXt7PvjSgmS6B4V",  # ① ページ2
     "PBCSwpnm9S6QVHtJ-LBff234VHn89xWtW",  # ② ページ3
     "PBjDNccpBqWtybYQ-LBxsBSg503sFyjyQ",  # ③ ページ4
     "PBvxHVxQT8c46KWb-LBHJq4nGtPjjtjnV",  # ④ ページ5
@@ -67,7 +67,7 @@ TELOP_ELEM_IDS = [
 ]
 
 IMAGE_SLOT_IDS = [
-    "PBG3BLhBZW05Kb0W-LBLG8GxWtKLtPZcZ",  # ページ2（コマ画像スロット）
+    "PBG3BLhBZW05Kb0W-LBVhh0TMry1xf5t2",  # ページ2（コマ画像スロット）
     "PBCSwpnm9S6QVHtJ-LBdQhQ9QLg702226",  # ページ3
     "PBjDNccpBqWtybYQ-LBDvNMjX4StVB5GM",  # ページ4
     "PBvxHVxQT8c46KWb-LBH6QJ9htKbKFffb",  # ページ5
@@ -306,7 +306,7 @@ def voicevox_available() -> bool:
         return False
 
 
-def generate_voice(text: str, speaker: int = VOICEVOX_SPEAKER) -> bytes:
+def generate_voice(text: str, speaker: int = VOICEVOX_SPEAKER_FEMALE) -> bytes:
     """VOICEVOX で音声を生成して WAV バイト列を返す。"""
     # Step 1: audio_query
     query_url = f"{VOICEVOX_URL}/audio_query?text={urllib.parse.quote(text)}&speaker={speaker}"
