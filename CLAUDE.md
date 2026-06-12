@@ -1,3 +1,11 @@
+## セッション開始時の必須動作
+新しいセッションが始まったら、何か作業を依頼される前に
+必ず以下を読むこと：
+- handoff.md
+- Projects/dmm-manga-affiliate/Knowledge/experience.md
+
+---
+
 ## ⛔ 最重要行動原則：必ず調査してから実装する
 
 ### 実装前に必ずやること
