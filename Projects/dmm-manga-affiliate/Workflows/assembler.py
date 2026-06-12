@@ -659,11 +659,6 @@ def main():
 
     log(f"assembler 起動: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
 
-    # タスクボードで「✅ 確認済み」になった[台本確認]をコンテンツDBに反映
-    overrides = sync_task_board_approvals(dry=dry)
-    if overrides:
-        log(f"タスクボード承認同期: {len(overrides)}件 → コンテンツDB approved 更新済み")
-
     pages = get_approved_pages()
     if not pages:
         log("approved: 0件 → 終了")
@@ -674,10 +669,6 @@ def main():
 
     for page in pages:
         props = extract_props(page)
-        yarinaoshi = overrides.get(props["page_id"], "")
-        if yarinaoshi:
-            props = dict(props)
-            props["script"] = yarinaoshi
         try:
             result = process_page(props, dry=dry)
             if result is not False:

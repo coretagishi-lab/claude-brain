@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 """
 DMM Notion Watcher: タスク確認ボードの「✅ 確認済み」[台本確認]を30秒ごとに監視。
-検知したら即「🔄 作成中」に変更（再検出防止）→ Outboxに待機タスク登録。
+
+検知したら:
+  1. やり直し指示があればコンテンツDBのscriptを上書き
+  2. コンテンツDBのstatusをapprovedに更新
+  3. タスクボードのステータスを「🔄 作成中」に変更（再検出防止）
+  4. Outboxに待機タスク登録（Mac Claude Codeへの通知）
 """
 import json, os, re, subprocess, sys, time, urllib.request, urllib.error
 from datetime import datetime
@@ -27,7 +32,7 @@ INTERVAL       = 30
 
 
 def notion(method, path, data=None):
-    body = json.dumps(data).encode() if data else None
+    body = json.dumps(data, ensure_ascii=False).encode() if data else None
     req = urllib.request.Request(
         f"https://api.notion.com/v1{path}", data=body, method=method,
         headers={
@@ -42,6 +47,18 @@ def notion(method, path, data=None):
         return e.code, {}
 
 
+def rt(text):
+    return [{"type": "text", "text": {"content": str(text)[:2000]}}]
+
+
+def extract_page_id(summary):
+    m = re.search(r"page_id:([0-9a-f\-]{32,36})", summary)
+    if not m:
+        return None
+    raw = m.group(1).replace("-", "")
+    return f"{raw[:8]}-{raw[8:12]}-{raw[12:16]}-{raw[16:20]}-{raw[20:]}"
+
+
 def poll():
     _, res = notion("POST", f"/databases/{TASK_BOARD_ID}/query", {
         "filter": {"and": [
@@ -51,21 +68,42 @@ def poll():
     })
     items = res.get("results", [])
     for item in items:
-        page_id = item["id"]
-        title   = "".join(p.get("plain_text", "") for p in item["properties"]["タスク名"]["title"])
-        summary = "".join(p.get("plain_text", "") for p in item["properties"].get("内容要約", {}).get("rich_text", []))
+        task_id    = item["id"]
+        task_title = "".join(p.get("plain_text", "") for p in item["properties"]["タスク名"]["title"])
+        summary    = "".join(p.get("plain_text", "") for p in item["properties"].get("内容要約", {}).get("rich_text", []))
+        yarinaoshi = "".join(p.get("plain_text", "") for p in item["properties"].get("やり直し指示", {}).get("rich_text", [])).strip()
 
-        # 即「🔄 作成中」に変更（再検出防止）
-        notion("PATCH", f"/pages/{page_id}", {
+        content_page_id = extract_page_id(summary)
+        if not content_page_id:
+            ts = datetime.now().strftime("%H:%M:%S")
+            print(f"[{ts}] ⚠️  page_id抽出失敗: {summary[:60]}", flush=True)
+            continue
+
+        # やり直し指示があればscriptを上書き
+        if yarinaoshi:
+            notion("PATCH", f"/pages/{content_page_id}", {
+                "properties": {"script": {"rich_text": rt(yarinaoshi)}}
+            })
+
+        # コンテンツDBをapprovedに更新
+        notion("PATCH", f"/pages/{content_page_id}", {
+            "properties": {"status": {"select": {"name": "approved"}}}
+        })
+
+        # タスクボードを「🔄 作成中」に変更（再検出防止）
+        notion("PATCH", f"/pages/{task_id}", {
             "properties": {"ステータス": {"select": {"name": "🔄 作成中"}}}
         })
-        ts = datetime.now().strftime("%H:%M:%S")
-        print(f"[{ts}] 検知 → Outbox登録: {title}", flush=True)
 
+        ts = datetime.now().strftime("%H:%M:%S")
+        has_override = " (やり直し指示あり)" if yarinaoshi else ""
+        print(f"[{ts}] 検知 → approved更新{has_override}: {task_title}", flush=True)
+
+        # Outboxに待機タスク登録
         subprocess.run([
             "python3", REPORTER,
-            "--title",  f"assembler実行待ち: {title}",
-            "--detail", summary or "(内容要約なし)",
+            "--title",  f"assembler実行待ち: {task_title}",
+            "--detail", f"content_page_id:{content_page_id}\n{summary}",
             "--action", "Mac Claude Code: python3 Projects/dmm-manga-affiliate/Workflows/assembler.py を実行してCanva組み立てを行う",
             "--source", "dmm-notion-watcher",
         ], timeout=15)
