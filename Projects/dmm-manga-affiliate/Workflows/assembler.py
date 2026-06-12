@@ -494,7 +494,7 @@ def save_canva_job(props: dict, image_urls: list, telops: list,
         "manga_title":           props["manga_title"],
         "image_urls":            image_urls,        # 利用可能な漫画画像URL一覧
         "image_assignments":     None,              # Claude Codeが各スロットへの対応を決定
-        "telops":                telops,
+        "telops":                [parse_gender_prefix(t)[1] for t in telops],
         "durations":             durations,
         "video_urls":            video_urls,
         "audio_dir":             str(out_dir),
