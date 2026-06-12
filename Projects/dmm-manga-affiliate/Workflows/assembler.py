@@ -514,10 +514,13 @@ def save_canva_job(props: dict, public_image_url: str, telops: list,
     Claude Code セッションがこのファイルを読み、Canva MCP を直接操作する。
 
     Claude Code セッションの実行手順:
-      1. copy-design(template_id) → 新 design_id を取得、canva_job.json の design_id を更新
-      2. get-design-content(design_id, page=1) でページ1のテキスト要素を取得
-         → top 座標で昇順ソートし、title_line_from_top 番目（1始まり）の element_id を取得
-         → start-editing-transaction → replace_text(element_id, manga_title) → commit
+      1. copy-design(template_id) → 新 design_id を取得
+         → canva_job.json の design_id フィールドを書き込む
+      2. get-design-content(new_design_id, page_index=0) でページ1のテキスト要素を取得
+         → type=="text" の要素を top 座標で昇順ソート
+         → title_line_from_top 番目（1始まり）の element_id を取得
+         → canva_job.json の manga_title_elem_id フィールドを書き込む
+         → start-editing-transaction → replace_text(manga_title_elem_id, manga_title) → commit
       3. comic_frames を決定:
          - public_image_url の画像をダウンロードして各テロップとコマ内容を照合
          - telops[i] に最も合うコマを {img, frame} 形式で決定
@@ -536,8 +539,9 @@ def save_canva_job(props: dict, public_image_url: str, telops: list,
         "video_urls":            video_urls,
         "audio_dir":             str(out_dir),
         "template_id":           TEMPLATE_ID,
-        "design_id":             None,          # copy-design後にClaude Codeが書き込む
-        "title_line_from_top":   3,             # page1テキストをtop順ソートした際の何番目か
+        "design_id":             None,          # STEP1: copy-design後にClaude Codeが書き込む
+        "manga_title_elem_id":   None,          # STEP2: get-design-content後にClaude Codeが書き込む
+        "title_line_from_top":   3,             # page1テキストをtop順ソートした際の何番目か（1始まり）
         "telop_elem_ids":        TELOP_ELEM_IDS,
         "image_slot_ids":        IMAGE_SLOT_IDS,
         "end_page_cover_slot_id": END_PAGE_COVER_SLOT_ID,
