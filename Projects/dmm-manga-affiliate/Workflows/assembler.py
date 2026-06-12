@@ -600,7 +600,7 @@ def process_page(props: dict, dry: bool = False) -> bool:
     video_urls = None
     durations  = None
     if voicevox_available():
-        log(f"  🎙 VOICEVOX 音声生成開始 (speaker={VOICEVOX_SPEAKER})")
+        log(f"  🎙 VOICEVOX 音声生成開始 (♀={VOICEVOX_SPEAKER_FEMALE} ♂={VOICEVOX_SPEAKER_MALE})")
         audio_dir = generate_all_voices(manga_title, [t for t in telops if t])
         log(f"  ✅ 音声保存先: {audio_dir}")
         durations = get_all_durations(audio_dir, len(telops))
