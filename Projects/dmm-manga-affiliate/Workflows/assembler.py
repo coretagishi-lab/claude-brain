@@ -82,62 +82,6 @@ PAGE1_COVER_SLOT_ID = "PBs1sTlCLqHDSG14-LBW9GpN7ycfQ2ptS"
 # ページ10（エンドページ）カバー画像スロット
 END_PAGE_COVER_SLOT_ID = "PBQRTjML4Gm5msr7-LBB8BKH3dpcWzwx8"
 
-# ── コマ割り定義 ───────────────────────────────────────────────────────────
-# 元画像: 1000×1399px（2列×3行=6コマ、各コマ: 500×466px）
-# スロットサイズ: 954.204×837.182px（全ページ共通）
-# スロット位置: top=590.6998, left=70.2600（全ページ共通）
-COMIC_FRAME_COORDS = {
-    1: {"x": 0,   "y": 0,    "w": 500, "h": 466, "label": "左上"},
-    2: {"x": 500, "y": 0,    "w": 500, "h": 466, "label": "右上"},
-    3: {"x": 0,   "y": 466,  "w": 500, "h": 466, "label": "左中"},
-    4: {"x": 500, "y": 466,  "w": 500, "h": 466, "label": "右中"},
-    5: {"x": 0,   "y": 932,  "w": 500, "h": 466, "label": "左下"},
-    6: {"x": 500, "y": 932,  "w": 500, "h": 466, "label": "右下"},
-}
-_IMG_ORIG_W  = 1000
-_IMG_ORIG_H  = 1399
-_SLOT_W      = 954.204234077198
-_SLOT_H      = 837.1824688470958
-_SLOT_TOP    = 590.6998000000001
-_SLOT_LEFT   = 70.26000845603028
-
-
-def _compute_frame_zoom_params() -> dict:
-    """
-    各コマの Canva ズームパラメータを事前計算して返す。
-
-    ズームロジック:
-      scale         = SLOT_W / panel_w           (= 954.204/500 = 1.908408)
-      scaled_img_w  = IMG_ORIG_W * scale          (元画像をスケール)
-      scaled_img_h  = IMG_ORIG_H * scale
-      elem_left     = SLOT_LEFT - frame_x * scale (コマ左端をスロット左端に揃える)
-      elem_top      = SLOT_TOP  - frame_y * scale
-
-    Claude Code セッションはこのパラメータを使って:
-      resize_element(element_id, scaled_img_w, scaled_img_h)
-      position_element(element_id, elem_top, elem_left)
-    を実行することでコマズームを実現する。
-    """
-    scale     = _SLOT_W / 500.0
-    scaled_w  = round(_IMG_ORIG_W * scale, 2)
-    scaled_h  = round(_IMG_ORIG_H * scale, 2)
-    frames = {}
-    for num, c in COMIC_FRAME_COORDS.items():
-        frames[str(num)] = {
-            "elem_left": round(_SLOT_LEFT - c["x"] * scale, 2),
-            "elem_top":  round(_SLOT_TOP  - c["y"] * scale, 2),
-        }
-    return {
-        "scale":        round(scale, 6),
-        "scaled_img_w": scaled_w,
-        "scaled_img_h": scaled_h,
-        "slot_top":     _SLOT_TOP,
-        "slot_left":    _SLOT_LEFT,
-        "slot_w":       round(_SLOT_W, 2),
-        "slot_h":       round(_SLOT_H, 2),
-        "frames":       frames,
-    }
-
 
 # ── ユーティリティ ────────────────────────────────────────────────────────
 def ts() -> str:
@@ -510,7 +454,7 @@ def cleanup_media_files(audio_dir: Path):
 
 # ── Canva ジョブ管理 ──────────────────────────────────────────────────────
 
-def save_canva_job(props: dict, public_image_url: str, telops: list,
+def save_canva_job(props: dict, image_urls: list, telops: list,
                    durations: list, video_urls: list, audio_dir) -> Path:
     """
     Canva 組み立てに必要なデータを JSON ファイルに保存する。
@@ -518,16 +462,14 @@ def save_canva_job(props: dict, public_image_url: str, telops: list,
 
     Claude Code セッションの実行手順:
       1. copy-design(template_id) → 新 design_id を取得
-         → canva_job.json の design_id フィールドを書き込む
-      2. get-design-content(new_design_id, page_index=0) でページ1のテキスト要素を取得
-         → type=="text" の要素を top 座標で昇順ソート
-         → title_line_from_top 番目（1始まり）の element_id を取得
-         → canva_job.json の manga_title_elem_id フィールドを書き込む
-         → start-editing-transaction → replace_text(manga_title_elem_id, manga_title) → commit
-      3. comic_frames を決定:
-         - public_image_url の画像をダウンロードして各テロップとコマ内容を照合
-         - telops[i] に最も合うコマを {img, frame} 形式で決定
-      4. 各スロットで update_fill + resize_element + position_element でズーム適用
+      2. start-editing-transaction → top昇順ソートで title_line_from_top 番目の
+         element_id を manga_title_elem_id として特定 → replace_text → commit
+      3. image_assignments を決定:
+         - image_urls の各画像をダウンロードして内容確認
+         - telops[i] に最も対応する image_url を選び image_assignments[i] に記録
+         - image_assignments は長さ8のリスト（テロップ①〜⑧に対応）
+      4. 各スロットで upload-asset-from-url → update_fill のみ（ズーム不要）
+      5. page1_cover_slot_id・end_page_cover_slot_id にも同様に差し込む
 
     Returns: 保存した JSON ファイルのパス
     """
@@ -536,25 +478,20 @@ def save_canva_job(props: dict, public_image_url: str, telops: list,
     state = {
         "page_id":               props["page_id"],
         "manga_title":           props["manga_title"],
-        "public_image_url":      public_image_url,
+        "image_urls":            image_urls,        # 利用可能な漫画画像URL一覧
+        "image_assignments":     None,              # Claude Codeが各スロットへの対応を決定
         "telops":                telops,
         "durations":             durations,
         "video_urls":            video_urls,
         "audio_dir":             str(out_dir),
         "template_id":           TEMPLATE_ID,
-        "design_id":             None,          # STEP1: copy-design後にClaude Codeが書き込む
-        "manga_title_elem_id":   None,          # STEP2: get-design-content後にClaude Codeが書き込む
-        "title_line_from_top":   3,             # page1テキストをtop順ソートした際の何番目か（1始まり）
+        "design_id":             None,
+        "manga_title_elem_id":   None,
+        "title_line_from_top":   3,
         "telop_elem_ids":        TELOP_ELEM_IDS,
         "image_slot_ids":        IMAGE_SLOT_IDS,
         "page1_cover_slot_id":   PAGE1_COVER_SLOT_ID,
         "end_page_cover_slot_id": END_PAGE_COVER_SLOT_ID,
-        # ── コマ割りズーム ────────────────────────────────────────────────
-        # comic_frames: Claude Code セッションが AI 判断で埋める（null のまま渡す）
-        # 例: [1, 2, 3, 4, 5, 6, 1, 3]  ← テロップ①〜⑧ に対応するコマ番号
-        "comic_frames":         None,
-        "comic_frame_coords":   {str(k): v for k, v in COMIC_FRAME_COORDS.items()},
-        "frame_zoom_params":    _compute_frame_zoom_params(),
     }
     state_file.write_text(json.dumps(state, ensure_ascii=False, indent=2))
     return state_file
@@ -624,22 +561,25 @@ def process_page(props: dict, dry: bool = False) -> bool:
         telops += [""] * (8 - len(telops))
     log(f"  テロップ: {telops}")
 
-    # ── 画像アップロード ──────────────────────────────────────────────────
-    public_image_url = ""
-    if props["image_url"]:
-        log(f"  📥 画像ダウンロード: {props['image_url'][:60]}...")
-        img_bytes, img_type = download_image(props["image_url"])
+    # ── 画像アップロード（複数対応） ─────────────────────────────────────
+    image_urls = []
+    raw_urls = props.get("image_url", "")
+    url_list = [u.strip() for u in raw_urls.split() if u.strip()] if raw_urls else []
+    for i, url in enumerate(url_list, 1):
+        log(f"  📥 画像{i}ダウンロード: {url[:60]}...")
+        img_bytes, img_type = download_image(url)
         if img_bytes:
             log(f"  📤 catbox.moe にアップロード中...")
-            public_image_url = upload_to_catbox(img_bytes, img_type or "image/jpeg")
-            if public_image_url:
-                log(f"  ✅ 公開URL: {public_image_url}")
+            pub_url = upload_to_catbox(img_bytes, img_type or "image/jpeg")
+            if pub_url:
+                image_urls.append(pub_url)
+                log(f"  ✅ 公開URL: {pub_url}")
             else:
-                log("  ⚠️  アップロード失敗 → 画像なしで続行")
+                log(f"  ⚠️  画像{i}アップロード失敗 → スキップ")
         else:
-            log("  ⚠️  画像取得失敗 → 画像なしで続行")
-    else:
-        log("  ℹ️  image_url なし → 画像挿入スキップ")
+            log(f"  ⚠️  画像{i}取得失敗 → スキップ")
+    if not image_urls:
+        log("  ℹ️  利用可能な画像なし → 画像挿入スキップ")
 
     # ── VOICEVOX 音声生成 + ffmpeg MP4変換 ───────────────────────────────
     audio_dir  = None
@@ -668,13 +608,13 @@ def process_page(props: dict, dry: bool = False) -> bool:
         return True
 
     state_file = save_canva_job(
-        props, public_image_url, telops, durations or [], video_urls or [], audio_dir
+        props, image_urls, telops, durations or [], video_urls or [], audio_dir
     )
     log(f"  📋 Canvaジョブ保存: {state_file}")
     print(f"\nCANVA_JOB_FILE={state_file}", flush=True)
     print("  ↑ このファイルを Claude Code セッションに渡して:", flush=True)
-    print("    1. public_image_url の画像を読み込み、telops とコマ画像を照合して comic_frames を決定", flush=True)
-    print("    2. 各スロットに update_fill + resize_element + position_element でズーム適用", flush=True)
+    print("    1. image_urls の各画像を確認し telops との対応を決定（image_assignments）", flush=True)
+    print("    2. 各スロットに upload-asset-from-url → update_fill のみ", flush=True)
     return state_file
 
 
