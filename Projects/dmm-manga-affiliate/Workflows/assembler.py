@@ -76,6 +76,9 @@ IMAGE_SLOT_IDS = [
     "PBpYZmnGCfCLdFFC-LBlSnf96nnXyTVR8",  # ページ9
 ]
 
+# ページ1（トップページ）カバー画像スロット
+PAGE1_COVER_SLOT_ID = "PBs1sTlCLqHDSG14-LBW9GpN7ycfQ2ptS"
+
 # ページ10（エンドページ）カバー画像スロット
 END_PAGE_COVER_SLOT_ID = "PBQRTjML4Gm5msr7-LBB8BKH3dpcWzwx8"
 
@@ -544,6 +547,7 @@ def save_canva_job(props: dict, public_image_url: str, telops: list,
         "title_line_from_top":   3,             # page1テキストをtop順ソートした際の何番目か（1始まり）
         "telop_elem_ids":        TELOP_ELEM_IDS,
         "image_slot_ids":        IMAGE_SLOT_IDS,
+        "page1_cover_slot_id":   PAGE1_COVER_SLOT_ID,
         "end_page_cover_slot_id": END_PAGE_COVER_SLOT_ID,
         # ── コマ割りズーム ────────────────────────────────────────────────
         # comic_frames: Claude Code セッションが AI 判断で埋める（null のまま渡す）
