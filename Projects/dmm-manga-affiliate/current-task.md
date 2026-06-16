@@ -1,7 +1,7 @@
 ---
 project: dmm-manga-affiliate
 updated_at: 2026-06-02
-checkpoint: STEP 1-5スクリプト完成・ANTHROPIC_API_KEY更新済み。通し確認が次のステップ。
+checkpoint: video-generator.py 完成（2026-06-16）。「あの幼馴染との」でv1完成動画を生成・確認済み。次はBGM配置と新案件での通し確認。
 ---
 
 ## 現在のフェーズ: パイプライン動作確認（STEP 2→3実行待ち）
