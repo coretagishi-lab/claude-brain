@@ -71,7 +71,7 @@ FPS            = 30
 TRANSITION     = 0.3   # xfade crossfade 秒
 INTRO_DURATION = 3.0   # page1 秒
 OUTRO_DURATION = 3.0   # page10 秒
-BGM_VOLUME     = 0.15  # ボイスに対するBGM音量比
+BGM_VOLUME     = 0.07  # ボイスに対するBGM音量比
 SE_VOLUME      = 0.5   # SE音量
 
 
