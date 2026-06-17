@@ -236,8 +236,8 @@ python3 Projects/dmm-manga-affiliate/Workflows/video-generator.py \
 - 画像: 完全静止（Ken Burns / crossfade / アニメ 全て廃止）
 - スライド切り替え: ハードカット（音声が終わったら即次へ）← 同期の要、絶対に変えない
 - 音声: VOICEVOX ♂/♀ 自動切り替え（テロップ先頭の♂♀マーカーで判定）
-- イントロ(page1): youtube_title or manga_title を女性ボイスで読み上げ
-- アウトロ(page10): 「続きはプロフィールのリンクから読めます」を女性ボイスで読み上げ
+- イントロ(page1): 「秒で出しちゃった{manga_title}男の漫画」を女性ボイスで読み上げ（Canvaページ1のデザイン文字と一致）
+- アウトロ(page10): 「続きは動画の概要欄かコメント欄」を女性ボイスで読み上げ
 - BGMミックス: ボイスに対して0.15の音量（BGM_PATHにファイルを置くだけで自動ON）
 - SEなし（page-turn.mp3を置いても今は未使用）
 
