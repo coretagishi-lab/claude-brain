@@ -2,7 +2,18 @@
 新しいセッションが始まったら、何か作業を依頼される前に
 必ず以下を読むこと：
 - handoff.md
+- Projects/dmm-manga-affiliate/SPEC.md ← このビジネスの憲法・最優先
 - Projects/dmm-manga-affiliate/Knowledge/experience.md
+
+---
+
+## ⛔ dmm-manga-affiliate の作業ルール（最重要）
+
+### SPEC.mdが全てに優先する
+- `Projects/dmm-manga-affiliate/` 配下のファイルを**変更する前に必ずSPEC.mdを読む**
+- コードに書いてある値・セッションログの記録・自分の判断は、**SPEC.mdより優先されない**
+- SPEC.mdの内容と矛盾する変更をする場合は**必ずtagishiに確認してから実装する**
+- 「たぶんこうだろう」で実装しない。不明なら質問する。
 
 ---
 
