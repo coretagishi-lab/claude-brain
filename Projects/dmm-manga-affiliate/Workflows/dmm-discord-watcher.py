@@ -56,7 +56,7 @@ def rt(text):
     return [{"type": "text", "text": {"content": str(text)[:2000]}}]
 
 
-def register_to_notion(manga_title, image_url, source_discord_url, affiliate_url):
+def register_to_notion(manga_title, image_url, source_discord_url, affiliate_url, x_post_url=""):
     today = datetime.now().strftime("%Y-%m-%d")
     label = manga_title if manga_title else "(タイトル未記載)"
     page_title = f"[{today}] {label}"
@@ -64,13 +64,15 @@ def register_to_notion(manga_title, image_url, source_discord_url, affiliate_url
     props = {
         "title":              {"title": rt(page_title)},
         "manga_title":        {"rich_text": rt(label)},
-        "image_url":          {"url": image_url},
+        "image_url":          {"rich_text": [{"type": "text", "text": {"content": image_url}}]},
         "source_discord_url": {"url": source_discord_url},
         "status":             {"select": {"name": "queued"}},
         "created_at":         {"date": {"start": today}},
     }
     if affiliate_url:
         props["affiliate_url"] = {"url": affiliate_url}
+    if x_post_url:
+        props["x_post_url"] = {"rich_text": [{"type": "text", "text": {"content": x_post_url}}]}
 
     blocks = [
         {
@@ -107,15 +109,19 @@ def register_to_notion(manga_title, image_url, source_discord_url, affiliate_url
 # ── メッセージパース ───────────────────────────────────────────────────────────
 
 def parse_message(content: str):
-    """テキストから (manga_title, affiliate_url) を抽出"""
+    """テキストから (manga_title, affiliate_url, x_post_url) を抽出"""
     lines = [l.strip() for l in content.strip().splitlines() if l.strip()]
 
     affiliate_url = ""
+    x_post_url    = ""
     for line in lines:
         m = re.search(r"https?://\S+", line)
         if m:
-            affiliate_url = m.group(0).rstrip(".,)")
-            break
+            url = m.group(0).rstrip(".,)")
+            if re.search(r"x\.com|twitter\.com", url):
+                x_post_url = url
+            else:
+                affiliate_url = url
 
     manga_title = ""
     for line in lines:
@@ -123,7 +129,7 @@ def parse_message(content: str):
             manga_title = line
             break
 
-    return manga_title, affiliate_url
+    return manga_title, affiliate_url, x_post_url
 
 
 # ── Discord Bot ───────────────────────────────────────────────────────────────
@@ -160,8 +166,8 @@ async def on_message(message: discord.Message):
         )
         return
 
-    manga_title, affiliate_url = parse_message(message.content or "")
-    image_url        = images[0].url
+    manga_title, affiliate_url, x_post_url = parse_message(message.content or "")
+    image_url        = " ".join(img.url for img in images)
     guild_id         = message.guild.id if message.guild else 0
     source_discord_url = (
         f"https://discord.com/channels/{guild_id}"
@@ -172,7 +178,7 @@ async def on_message(message: discord.Message):
     loop = asyncio.get_event_loop()
     status, res = await loop.run_in_executor(
         None,
-        lambda: register_to_notion(manga_title, image_url, source_discord_url, affiliate_url),
+        lambda: register_to_notion(manga_title, image_url, source_discord_url, affiliate_url, x_post_url),
     )
 
     if status == 200:
@@ -180,8 +186,8 @@ async def on_message(message: discord.Message):
         warnings = []
         if not manga_title:
             warnings.append("⚠️ タイトルを読み取れませんでした → Notionで編集してください")
-        if not affiliate_url:
-            warnings.append("⚠️ アフィリエイトURLが見つかりません → Notionで追記してください")
+        if not x_post_url:
+            warnings.append("⚠️ XのURLが見つかりません → Notionで追記してください")
 
         reply_lines = ["✅ Notionキューに登録しました"] + warnings + [f"→ {notion_url}"]
         await message.add_reaction("✅")
