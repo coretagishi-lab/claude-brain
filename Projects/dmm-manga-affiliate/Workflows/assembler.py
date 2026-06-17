@@ -471,8 +471,7 @@ def cleanup_media_files(audio_dir: Path):
 
 # ── Canva ジョブ管理 ──────────────────────────────────────────────────────
 
-def save_canva_job(props: dict, image_urls: list, telops: list,
-                   durations: list, video_urls: list, audio_dir) -> Path:
+def save_canva_job(props: dict, image_urls: list, telops: list) -> Path:
     """
     Canva 組み立てに必要なデータを JSON ファイルに保存する。
     Claude Code セッションがこのファイルを読み、Canva MCP を直接操作する。
@@ -490,17 +489,17 @@ def save_canva_job(props: dict, image_urls: list, telops: list,
 
     Returns: 保存した JSON ファイルのパス
     """
-    out_dir    = Path(audio_dir) if audio_dir else AUDIO_DIR
+    safe_title = re.sub(r'[^\w]', '_', props['manga_title'])[:30]
+    out_dir    = AUDIO_DIR / f"{datetime.now().strftime('%Y%m%d')}_{safe_title}"
+    out_dir.mkdir(parents=True, exist_ok=True)
     state_file = out_dir / "canva_job.json"
     state = {
         "page_id":               props["page_id"],
         "manga_title":           props["manga_title"],
-        "image_urls":            image_urls,        # 利用可能な漫画画像URL一覧
-        "image_assignments":     None,              # Claude Codeが各スロットへの対応を決定
+        "x_post_url":            props.get("x_post_url", ""),
+        "image_urls":            image_urls,
+        "image_assignments":     None,
         "telops":                [parse_gender_prefix(t)[1] for t in telops],
-        "durations":             durations,
-        "video_urls":            video_urls,
-        "audio_dir":             str(out_dir),
         "template_id":           TEMPLATE_ID,
         "design_id":             None,
         "manga_title_elem_id":   None,
@@ -517,12 +516,11 @@ def save_canva_job(props: dict, image_urls: list, telops: list,
 def finalize_canva(state_file: Path, design_id: str, canva_url: str, dry: bool = False):
     """
     Claude Code が Canva MCP 操作を完了した後に呼ぶ後処理。
-    Notion 更新 / タスクボード登録 / Discord 通知 / メディアファイル削除
+    Notion 更新 / タスクボード登録 / Discord 通知
     """
     state       = json.loads(state_file.read_text())
     page_id     = state["page_id"]
     manga_title = state["manga_title"]
-    audio_dir   = Path(state["audio_dir"]) if state.get("audio_dir") else None
 
     notion_url = f"https://app.notion.com/p/{page_id.replace('-', '')}"
     update_to_canva_ready(page_id, canva_url, design_id, dry=dry)
@@ -532,9 +530,6 @@ def finalize_canva(state_file: Path, design_id: str, canva_url: str, dry: bool =
     log("  ✅ タスク確認ボード登録完了")
 
     notify_discord(manga_title, canva_url, notion_url)
-
-    if audio_dir and audio_dir.exists():
-        cleanup_media_files(audio_dir)
 
 
 # ── Discord 通知 ──────────────────────────────────────────────────────────
@@ -598,35 +593,13 @@ def process_page(props: dict, dry: bool = False) -> bool:
     if not image_urls:
         log("  ℹ️  利用可能な画像なし → 画像挿入スキップ")
 
-    # ── VOICEVOX 音声生成 + ffmpeg MP4変換 ───────────────────────────────
-    audio_dir  = None
-    video_urls = None
-    durations  = None
-    if voicevox_available():
-        log(f"  🎙 VOICEVOX 音声生成開始 (♀={VOICEVOX_SPEAKER_FEMALE} ♂={VOICEVOX_SPEAKER_MALE})")
-        audio_dir = generate_all_voices(manga_title, [t for t in telops if t])
-        log(f"  ✅ 音声保存先: {audio_dir}")
-        durations = get_all_durations(audio_dir, len(telops))
-        log(f"  ⏱  ページ表示時間: {durations}")
-        if ffmpeg_available():
-            log(f"  🎬 ffmpeg: WAV → 透明MP4 変換中...")
-            mp4_paths = convert_all_to_mp4(audio_dir, len(telops))
-            log(f"  📤 MP4 を catbox.moe にアップロード中...")
-            video_urls = upload_all_video(audio_dir, mp4_paths)
-            log(f"  ✅ 動画アップロード完了: {sum(1 for u in video_urls if u)}/{len(telops)} 件")
-        else:
-            log(f"  ⚠️  ffmpeg が見つかりません → MP4変換スキップ")
-    else:
-        log(f"  ⚠️  VOICEVOX ({VOICEVOX_URL}) に接続できません → 音声生成スキップ")
-
     # ── Canva ジョブ保存 ──────────────────────────────────────────────────
+    # VOICEVOX・音声生成はここでは行わない。video-generator.py で実施。
     if dry:
         log("  [DRY] Canva ジョブ保存スキップ")
         return True
 
-    state_file = save_canva_job(
-        props, image_urls, telops, durations or [], video_urls or [], audio_dir
-    )
+    state_file = save_canva_job(props, image_urls, telops)
     log(f"  📋 Canvaジョブ保存: {state_file}")
     print(f"\nCANVA_JOB_FILE={state_file}", flush=True)
     print("  ↑ このファイルを Claude Code セッションに渡して:", flush=True)
