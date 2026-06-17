@@ -3,25 +3,25 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.ai-brain.queue-processor</string>
+    <string>com.ai-brain.comment-poster</string>
 
     <key>ProgramArguments</key>
     <array>
         <string>/bin/zsh</string>
-        <string>/Users/tagishitakuya/Desktop/ClaudeProjects/AI-Brain/Projects/dmm-manga-affiliate/Workflows/launchd/run-queue-processor.sh</string>
+        <string>/Users/tagishitakuya/Desktop/ClaudeProjects/AI-Brain/Projects/dmm-manga-affiliate/Workflows/launchd/run-comment-poster.sh</string>
     </array>
 
-    <!-- 2分おき（120秒）-->
+    <!-- 5分おき（300秒）-->
     <key>StartInterval</key>
-    <integer>120</integer>
+    <integer>300</integer>
 
     <key>RunAtLoad</key>
     <false/>
 
     <key>StandardOutPath</key>
-    <string>/tmp/ai-brain-queue-processor.log</string>
+    <string>/tmp/ai-brain-comment-poster.log</string>
 
     <key>StandardErrorPath</key>
-    <string>/tmp/ai-brain-queue-processor.err</string>
+    <string>/tmp/ai-brain-comment-poster.err</string>
 </dict>
 </plist>
