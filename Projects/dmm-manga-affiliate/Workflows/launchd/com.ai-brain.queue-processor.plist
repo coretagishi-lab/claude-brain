@@ -8,7 +8,9 @@
     <key>ProgramArguments</key>
     <array>
         <string>/bin/zsh</string>
-        <string>/Users/tagishitakuya/Desktop/ClaudeProjects/AI-Brain/Projects/dmm-manga-affiliate/Workflows/launchd/run-queue-processor.sh</string>
+        <string>-l</string>
+        <string>-c</string>
+        <string>source ~/.zshrc 2>/dev/null; cd /Users/tagishitakuya/Desktop/ClaudeProjects/AI-Brain &amp;&amp; /usr/bin/python3 Projects/dmm-manga-affiliate/Workflows/queue-processor.py</string>
     </array>
 
     <!-- 2分おき（120秒）-->

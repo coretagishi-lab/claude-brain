@@ -5,10 +5,12 @@
     <key>Label</key>
     <string>com.ai-brain.assembler</string>
 
+    <!-- Desktop TCC制限回避: /usr/local/bin/ai_brain_daemon.py を呼ぶ -->
+    <!-- インストール: sudo cp ai_brain_daemon.py /usr/local/bin/ && chmod +x /usr/local/bin/ai_brain_daemon.py -->
     <key>ProgramArguments</key>
     <array>
-        <string>/bin/zsh</string>
-        <string>/Users/tagishitakuya/Desktop/ClaudeProjects/AI-Brain/Projects/dmm-manga-affiliate/Workflows/launchd/run-assembler.sh</string>
+        <string>/usr/bin/python3</string>
+        <string>/usr/local/bin/ai_brain_daemon.py</string>
     </array>
 
     <!-- 2分おき（120秒）-->
@@ -17,6 +19,17 @@
 
     <key>RunAtLoad</key>
     <false/>
+
+    <!-- トークンは ~/Library/LaunchAgents/ 版に直接記載（リポジトリには含めない）-->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>NOTION_TOKEN</key>
+        <string>SET_FROM_ZSHRC</string>
+        <key>NOTION_CONTENT_DB_ID</key>
+        <string>SET_FROM_ZSHRC</string>
+        <key>DISCORD_WEBHOOK_URL</key>
+        <string>SET_FROM_ZSHRC</string>
+    </dict>
 
     <key>StandardOutPath</key>
     <string>/tmp/ai-brain-assembler.log</string>
