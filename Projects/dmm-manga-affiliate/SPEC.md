@@ -84,7 +84,7 @@ version: 1.1
    → サムネイルを page1.png（Canvaの1枚目）に自動設定
    → 概要欄に XのURL を追記
    → コメントは投稿直後に投稿（x_url付き）
-   ※ 予約投稿の場合: privacyStatus=private + publishAt で指定時刻に自動公開（実装予定）
+   ※ 予約投稿: Notionの publish_at を読んで自動で scheduledPublishTime をセット（実装済み）
 ```
 
 ---
@@ -114,9 +114,10 @@ Bot      Code       確認         Code          Code        Code
 - 漫画タイトル
 
 **運用ルール:**
-- youtube-uploader.py が投稿時に自動でこのDBにエントリを作成する
-- Notionでカレンダービューを設定して「公開日時」を軸にする
-- アカウントごとにフィルターして表示を切り替える
+- Discord投稿時点で即座に「予約済み」でカレンダーに登録される
+- 8:00 / 21:00 の空き枠を自動探索 → ±15〜30分ランダムずらしで被りを防止
+- tagishiは時刻指定不要。投稿するだけで次の空き枠に自動で入る
+- YouTube投稿後に「公開済み」に自動更新
 
 ---
 
