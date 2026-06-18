@@ -250,6 +250,26 @@ def upload_video(video_path: Path, title: str, description: str,
     return video_id, video_url
 
 
+def set_thumbnail(video_id: str, thumbnail_path: Path):
+    """動画のサムネイルを設定する"""
+    access_token = get_access_token()
+    img_data = thumbnail_path.read_bytes()
+    req = urllib.request.Request(
+        f"https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId={video_id}",
+        data=img_data, method="POST",
+        headers={
+            "Authorization":  f"Bearer {access_token}",
+            "Content-Type":   "image/png",
+            "Content-Length": str(len(img_data)),
+        }
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30):
+            log("✅ サムネイル設定完了")
+    except urllib.error.HTTPError as e:
+        log(f"⚠️  サムネイル設定失敗 ({e.code}) → スキップ（YouTube Studioから手動設定可）")
+
+
 def update_description(video_id: str, title: str, x_url: str):
     """動画の概要欄を更新する"""
     access_token = get_access_token()
@@ -439,16 +459,19 @@ def main():
         props = get_notion_page(args.page_id)
         x_url = props.get("x_post_url", "")
 
+    # サムネイル設定（動画と同名の _thumb.png があれば自動セット）
+    thumbnail_path = video_path.parent / f"{video_path.stem}_thumb.png"
+    if thumbnail_path.exists():
+        log("🖼  サムネイル設定中...")
+        set_thumbnail(video_id, thumbnail_path)
+    else:
+        log("ℹ️  サムネイルファイルなし → スキップ")
+
     if x_url:
         log("📝 概要欄を更新中...")
         update_description(video_id, title, x_url)
-        if args.privacy == "public":
-            log("💬 コメント投稿中...")
-            post_comment(video_id, x_url)
-        else:
-            # 公開後に自動投稿するためにpendingとして保存
-            save_pending_comment(video_id, x_url, title)
-            log("ℹ️  コメントはpending登録済み → 公開されると自動投稿されます")
+        log("💬 コメント投稿中...")
+        post_comment(video_id, x_url)
 
     # Notionページを更新
     if args.page_id and NOTION_TOKEN:

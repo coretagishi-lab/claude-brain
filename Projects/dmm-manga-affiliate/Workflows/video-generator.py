@@ -754,6 +754,14 @@ def assemble_mode(job_file: Path):
     output_path.parent.mkdir(parents=True, exist_ok=True)
     assemble_video(job, output_path)
 
+    # サムネイル用に page1.png をコピー（youtube-uploader.pyが使う）
+    page1 = canva_pages_dir / "page1.png"
+    thumbnail_path = output_path.parent / f"{output_path.stem}_thumb.png"
+    if page1.exists():
+        import shutil
+        shutil.copy2(page1, thumbnail_path)
+        log(f"  🖼  サムネイル保存: {thumbnail_path.name}")
+
     # catbox アップロード
     log("📤 catbox.moe にアップロード中...")
     catbox_url = upload_to_catbox(output_path)
