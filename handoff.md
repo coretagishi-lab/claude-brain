@@ -35,7 +35,18 @@ python3 /Users/tagishitakuya/Desktop/ClaudeProjects/AI-Brain/Shared/Workflows/vp
 タスクがない・pendingコメントがない場合は何も出力しない。タスクを処理した場合のみ結果を報告する。
 ```
 
-## 2. /tmp/ai-brain/ の確認
+## 2. 自動保存Cronも登録（20分ごと）
+```
+/loop 20m セッション状態の自動保存（20分ごと）:
+以下を実行してhandoff.mdとPROJECT_STATUS.mdを最新状態に保ち、git pushする。
+1. このセッションで完了したことがあれば handoff.md の「テスト済み案件」と必要な箇所を更新する
+2. Projects/dmm-manga-affiliate/PROJECT_STATUS.md の updated_at を今日の日付に更新する
+3. git add -A && git commit -m "auto: セッション状態保存 $(date '+%Y-%m-%d %H:%M')" && git push
+4. 何も変更がなければ何も出力しない（git commit が「nothing to commit」なら終了）
+```
+→ コンテキストが突然100%になっても handoff.md は常に最新状態を保つ
+
+## 3. /tmp/ai-brain/ の確認
 ```bash
 ls /tmp/ai-brain/*/canva_job.json 2>/dev/null
 ```
