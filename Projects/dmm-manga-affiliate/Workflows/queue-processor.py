@@ -139,16 +139,33 @@ def register_to_task_board(manga_title, telops, notion_url, cost_usd, page_id):
     })
 
 
-def notify_discord(manga_title, page_id):
+def notify_discord(manga_title, page_id, script=""):
     if not DISCORD_WEBHOOK_URL:
         return
-    notion_url = f"https://app.notion.com/p/{page_id.replace('-', '')}"
-    body = json.dumps({
-        "content": f"✅ 台本生成完了：{manga_title} タスクボードで確認してください {notion_url}"
-    }).encode("utf-8")
+    notion_url    = f"https://app.notion.com/p/{page_id.replace('-', '')}"
+    task_board_url = f"https://app.notion.com/p/{NOTION_TASK_BOARD_ID.replace('-', '')}"
+
+    # 台本プレビュー（最初の3行）
+    preview = ""
+    if script:
+        lines = [l.strip() for l in script.strip().splitlines() if l.strip()][:3]
+        preview = "\n".join(f"> {l}" for l in lines)
+        if len([l for l in script.strip().splitlines() if l.strip()]) > 3:
+            preview += "\n> ..."
+
+    content = (
+        f"📝 **台本生成完了：{manga_title}**\n"
+        f"{preview}\n\n"
+        f"✅ タスクボードで確認してください👇\n"
+        f"https://www.notion.so/{NOTION_TASK_BOARD_ID.replace('-', '')}"
+    )
+    body = json.dumps({"content": content}, ensure_ascii=False).encode("utf-8")
     req = urllib.request.Request(
         DISCORD_WEBHOOK_URL, data=body, method="POST",
-        headers={"Content-Type": "application/json"}
+        headers={
+            "Content-Type": "application/json",
+            "User-Agent": "DiscordBot (ai-brain, 1.0)",
+        }
     )
     try:
         with urllib.request.urlopen(req, timeout=10):

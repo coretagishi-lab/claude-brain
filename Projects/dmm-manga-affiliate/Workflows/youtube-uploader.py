@@ -26,7 +26,12 @@ NOTION_TOKEN         = os.environ.get("NOTION_TOKEN", "")
 NOTION_CONTENT_DB_ID = os.environ.get("NOTION_CONTENT_DB_ID", "")
 NOTION_VERSION       = "2022-06-28"
 
-YOUTUBE_SCOPE = "https://www.googleapis.com/auth/youtube.upload"
+YOUTUBE_SCOPE = " ".join([
+    "https://www.googleapis.com/auth/youtube.upload",
+    "https://www.googleapis.com/auth/youtube",
+    "https://www.googleapis.com/auth/youtube.force-ssl",
+    "https://www.googleapis.com/auth/yt-analytics.readonly",
+])
 REDIRECT_URI  = "http://localhost:8080"
 
 # YouTube動画のデフォルト設定
@@ -70,6 +75,7 @@ def get_notion_page(page_id):
         "youtube_title": text("youtube_title"),
         "description":   text("description"),
         "affiliate_url": props.get("affiliate_url", {}).get("url", ""),
+        "x_post_url":    text("x_post_url"),
     }
 
 
@@ -244,13 +250,144 @@ def upload_video(video_path: Path, title: str, description: str,
     return video_id, video_url
 
 
+def update_description(video_id: str, title: str, x_url: str):
+    """動画の概要欄を更新する"""
+    access_token = get_access_token()
+
+    # 現在のスニペットを取得
+    req = urllib.request.Request(
+        f"https://www.googleapis.com/youtube/v3/videos?part=snippet&id={video_id}",
+        headers={"Authorization": f"Bearer {access_token}"}
+    )
+    with urllib.request.urlopen(req, timeout=30) as r:
+        current = json.loads(r.read())
+
+    snippet = current["items"][0]["snippet"]
+    snippet["description"] = (
+        f"【{title}】の続きはこちら👇\n"
+        f"{x_url}\n\n"
+        f"気になった方はXの投稿からアフィリエイトリンクへ！\n\n"
+        f"#漫画 #マンガ #Shorts #漫画紹介 #おすすめ漫画"
+    )
+
+    body = json.dumps({"id": video_id, "snippet": snippet}).encode()
+    req = urllib.request.Request(
+        "https://www.googleapis.com/youtube/v3/videos?part=snippet",
+        data=body, method="PUT",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type":  "application/json",
+        }
+    )
+    with urllib.request.urlopen(req, timeout=30) as r:
+        log("✅ 概要欄を更新しました")
+
+
+def post_comment(video_id: str, x_url: str):
+    """動画にコメントを投稿する"""
+    access_token = get_access_token()
+
+    body = json.dumps({
+        "snippet": {
+            "videoId": video_id,
+            "topLevelComment": {
+                "snippet": {
+                    "textOriginal": f"続きはこちら⬇️\n{x_url}"
+                }
+            }
+        }
+    }).encode()
+
+    req = urllib.request.Request(
+        "https://www.googleapis.com/youtube/v3/commentThreads?part=snippet",
+        data=body, method="POST",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type":  "application/json",
+        }
+    )
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                log("✅ コメントを投稿しました")
+                return
+        except urllib.error.HTTPError as e:
+            if attempt < 2:
+                log(f"  コメント投稿リトライ中... ({attempt+1}/3)")
+                time.sleep(5)
+            else:
+                log(f"⚠️  コメント投稿失敗 ({e.code}) → スキップ（後でYouTube Studioから手動追加可）")
+
+
+# ── pending コメント管理 ──────────────────────────────────────────────────────
+PENDING_FILE = Path.home() / ".config" / "dmm-youtube" / "pending_comments.json"
+
+
+def save_pending_comment(video_id: str, x_url: str, title: str):
+    """公開待ちコメントをpendingリストに保存"""
+    PENDING_FILE.parent.mkdir(parents=True, exist_ok=True)
+    pending = json.loads(PENDING_FILE.read_text()) if PENDING_FILE.exists() else []
+    pending.append({
+        "video_id":  video_id,
+        "x_url":     x_url,
+        "title":     title,
+        "added_at":  datetime.now().isoformat(),
+    })
+    PENDING_FILE.write_text(json.dumps(pending, ensure_ascii=False, indent=2))
+
+
+def get_video_privacy(video_id: str) -> str:
+    """YouTube APIで動画の公開設定を取得"""
+    access_token = get_access_token()
+    req = urllib.request.Request(
+        f"https://www.googleapis.com/youtube/v3/videos?part=status&id={video_id}",
+        headers={"Authorization": f"Bearer {access_token}"}
+    )
+    with urllib.request.urlopen(req, timeout=30) as r:
+        data = json.loads(r.read())
+    items = data.get("items", [])
+    if not items:
+        return "deleted"
+    return items[0]["status"]["privacyStatus"]
+
+
+def check_and_post_pending():
+    """pendingリストをチェックして公開済み動画にコメント投稿"""
+    if not PENDING_FILE.exists():
+        return
+
+    pending = json.loads(PENDING_FILE.read_text())
+    if not pending:
+        return
+
+    remaining = []
+    for item in pending:
+        video_id = item["video_id"]
+        x_url    = item["x_url"]
+        title    = item.get("title", "")
+
+        privacy = get_video_privacy(video_id)
+
+        if privacy == "public":
+            log(f"🎉 公開検知: {title} ({video_id})")
+            post_comment(video_id, x_url)
+        elif privacy == "deleted":
+            log(f"🗑  削除済みのためスキップ: {video_id}")
+        else:
+            remaining.append(item)  # まだ非公開 → 残す
+
+    PENDING_FILE.write_text(json.dumps(remaining, ensure_ascii=False, indent=2))
+
+
 # ── メイン ────────────────────────────────────────────────────────────────────
 def main():
     parser = argparse.ArgumentParser(description="YouTube Shorts アップローダー")
-    parser.add_argument("--auth",        action="store_true", help="初回認証（ブラウザが開きます）")
+    parser.add_argument("--auth",          action="store_true", help="初回認証（ブラウザが開きます）")
+    parser.add_argument("--check-pending", action="store_true", help="公開待ちコメントをチェックして投稿")
     parser.add_argument("--video",       type=str, default="", help="動画ファイルパス")
     parser.add_argument("--title",       type=str, default="", help="動画タイトル")
     parser.add_argument("--description", type=str, default="", help="動画説明文")
+    parser.add_argument("--x-url",       type=str, default="", help="XポストURL（概要欄・コメントに追加）")
     parser.add_argument("--page-id",     type=str, default="", help="NotionページIDから情報を取得")
     parser.add_argument("--privacy",     type=str, default=DEFAULT_PRIVACY,
                         choices=["private", "unlisted", "public"], help="公開設定")
@@ -258,6 +395,10 @@ def main():
 
     if args.auth:
         run_auth_flow()
+        return
+
+    if args.check_pending:
+        check_and_post_pending()
         return
 
     # 動画ファイルの確認
@@ -272,15 +413,17 @@ def main():
             print("❌ NOTION_TOKEN が未設定です")
             sys.exit(1)
         props = get_notion_page(args.page_id)
-        title       = title       or props.get("youtube_title") or props.get("manga_title", "")
+        manga_title = props.get("manga_title", "")
+        if not title:
+            title = f"続きはコメ欄⬇️【{manga_title}】 #漫画 #Shorts" if manga_title else ""
         description = description or props.get("description", "") + "\n" + props.get("affiliate_url", "")
 
     if not video_path or not video_path.exists():
         print("❌ 動画ファイルを --video で指定してください")
         sys.exit(1)
     if not title:
-        print("❌ タイトルを --title で指定してください")
-        sys.exit(1)
+        # タイトル未指定の場合はデフォルト
+        title = "続きはコメ欄⬇️ #漫画 #Shorts"
 
     print(f"\n📺 YouTube投稿開始")
     print(f"   動画: {video_path.name}")
@@ -289,6 +432,23 @@ def main():
 
     video_id, video_url = upload_video(video_path, title, description,
                                         privacy=args.privacy)
+
+    # X URLが指定されていれば概要欄・コメントに追加
+    x_url = args.x_url
+    if args.page_id and NOTION_TOKEN and not x_url:
+        props = get_notion_page(args.page_id)
+        x_url = props.get("x_post_url", "")
+
+    if x_url:
+        log("📝 概要欄を更新中...")
+        update_description(video_id, title, x_url)
+        if args.privacy == "public":
+            log("💬 コメント投稿中...")
+            post_comment(video_id, x_url)
+        else:
+            # 公開後に自動投稿するためにpendingとして保存
+            save_pending_comment(video_id, x_url, title)
+            log("ℹ️  コメントはpending登録済み → 公開されると自動投稿されます")
 
     # Notionページを更新
     if args.page_id and NOTION_TOKEN:
@@ -301,6 +461,7 @@ def main():
    URL: {video_url}
    ID:  {video_id}
    ※ 「{args.privacy}」設定で投稿されました
+{"   🐦 XのURL → 概要欄・コメントに追加済み" if x_url else ""}
 ════════════════════════════════════════════""")
 
 
