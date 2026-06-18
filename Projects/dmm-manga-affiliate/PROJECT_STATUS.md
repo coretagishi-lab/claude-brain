@@ -4,23 +4,22 @@ current_status: active
 priority: high
 due_date: ""
 review_waiting: false
-updated_at: 2026-06-16
+updated_at: 2026-06-18
 ---
 
 ## current_goal
-- 1素材→4バリエーション×4アカウントで1日最大16本を自動生成・投稿するパイプラインを完成させる
+- 1素材→2バリエーション×1アカウントで全工程自動化パイプラインを完成・安定稼働させる
 
 ## next_action
-- BGMファイル（アカウント①BGM.mp3）を動画素材フォルダに配置して動画に組み込む
-- 新しい案件を投入して video-generator.py の通し確認を実施する
-- YouTube投稿フロー（STEP 11）の実装に向けてOAuth2認証を進める
+- 次の素材をDiscordに投稿して台本生成→Canva→動画→YouTube投稿の全フローをテストする
+- サムネイル設定（10秒待機修正）が実際に機能するか次回投稿で確認する
 
 ## blocker
-- BGMファイル未配置（tagishiが選定・配置する必要あり）
-- YouTube投稿（STEP 11）: OAuth2認証未実施
+- なし（セッション中はCronで全工程自動検知・実行可能）
 
 ## latest_output
 
 | type | name | path | url | updated_at |
 |---|---|---|---|---|
-| mp4 | あの幼馴染との_完成.mp4（v1完成版） | 漫画アフィリエイト:動画素材/ | https://files.catbox.moe/o5vpgd.mp4 | 2026-06-16 |
+| mp4 | フレンドとの①_完成.mp4 | 漫画アフィリエイト:動画素材/ | https://youtube.com/shorts/2x1EHyACH78 | 2026-06-18 |
+| mp4 | フレンドとの②_完成.mp4 | 漫画アフィリエイト:動画素材/ | https://youtube.com/shorts/W7LLnwcsJHs | 2026-06-18 |

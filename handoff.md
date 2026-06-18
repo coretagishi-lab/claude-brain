@@ -1,7 +1,7 @@
 ---
 type: handoff
 title: 次チャットへの引き継ぎ
-updated: 2026-06-18
+updated: 2026-06-18 (夕方セッション)
 ---
 
 # ⚠️ 最重要ルール（毎回必ず読む）
@@ -296,10 +296,35 @@ python3 Projects/dmm-manga-affiliate/Workflows/assembler.py \
 # テスト済み案件
 - 「幼馴染と」 design_id: DAHMVZDWKgs（テスト用・完成済み）
 - 「あの幼馴染との」 design_id: DAHMWHY0X-8
-  動画: /Users/tagishitakuya/Desktop/ClaudeProjects/漫画アフィリエイト:動画素材/あの幼馴染との_完成.mp4
-  ※ 透過なし・通常PNGで生成したテスト版（100点版は未実行）
+- 「フレンドとの①」 YouTube: https://youtube.com/shorts/2x1EHyACH78（予約: 2026-06-18 21:24）
+- 「フレンドとの②」 YouTube: https://youtube.com/shorts/W7LLnwcsJHs（予約: 2026-06-26 08:27）
 
 ---
 
 # Discord webhook 403
 tokens.mdのURL期限切れ。tagishi手動更新要。
+
+---
+
+# 2026-06-18 夕方セッション 変更内容
+
+## セッション中VPS自動検知（CronCreate）
+- ジョブID: a464c608（2分ごと・セッション終了で消える）
+- セッションを開いている間は VPS タスクを自動検知して即実行する
+- 次セッション開始時に再登録が必要（CLAUDE.mdに追記推奨）
+
+## youtube-uploader.py 修正内容（永続）
+1. **タイトル**: manga_titleから末尾の①②③等を除去してタイトルに使う
+2. **サムネイル**: アップロード後10秒待機してから設定（動画処理完了待ち）
+3. **コメント**: 予約投稿の場合は pending_comments.json に保存 → 公開後に自動投稿
+4. **カレンダー登録**: 既存エントリを検索して更新（重複防止）。publish_atを渡してステータスを予約済み/公開済みに正しく設定
+5. **check_and_post_pending**: 公開検知時にカレンダーのステータスも「公開済み」に更新
+
+## 判明した制約（変えないこと）
+- launchd（セッション外）はDesktopにアクセスできない（TCC制限）
+- そのため youtube-uploader.py / video-generator.py はセッション中のCronでのみ実行可能
+- launchd ai_brain_daemon.py は approved→catbox+canva_job.json のみ担当（元に戻した）
+
+## フレンドとの①② カレンダー
+- 重複エントリ（15:55 アップロード時刻）をアーカイブ済み
+- 正しいエントリ（①:21:24 / ②:2026-06-26 08:27）にYouTube URLを追記済み

@@ -83,23 +83,51 @@ def get_notion_page(page_id):
 
 CALENDAR_DB_ID = "3831cad4-aa98-81c2-9c66-e7f9ee3597e9"
 
+def find_calendar_entry(manga_title: str) -> str:
+    """漫画タイトルで既存カレンダーエントリを検索してpage_idを返す（なければ空文字）"""
+    _, res = notion("POST", f"/databases/{CALENDAR_DB_ID}/query", {
+        "filter": {"property": "漫画タイトル", "rich_text": {"contains": manga_title[:10]}},
+    })
+    for page in res.get("results", []):
+        props = page["properties"]
+        existing = "".join(p.get("plain_text", "") for p in props.get("漫画タイトル", {}).get("rich_text", []))
+        if existing == manga_title:
+            return page["id"]
+    return ""
+
+
 def register_to_calendar(manga_title: str, youtube_url: str, x_url: str,
                           account: str = "アカウント①", publish_at: str = None):
-    """投稿カレンダーDBに記録する"""
-    now = publish_at or datetime.now().strftime("%Y-%m-%dT%H:%M:%S+09:00")
+    """既存カレンダーエントリを更新、なければ作成する"""
+    status = "予約済み" if publish_at else "公開済み"
+    date_str = publish_at or datetime.now().strftime("%Y-%m-%dT%H:%M:%S+09:00")
     title = f"秒で出しちゃった{manga_title}男の漫画"
-    notion("POST", "/pages", {
-        "parent": {"database_id": CALENDAR_DB_ID},
-        "properties": {
-            "動画タイトル": {"title": rt(title)},
-            "アカウント":   {"select": {"name": account}},
-            "公開日時":     {"date": {"start": now}},
-            "ステータス":   {"select": {"name": "公開済み"}},
-            "YouTube URL":  {"url": youtube_url},
-            "X URL":        {"url": x_url} if x_url else {"url": None},
-            "漫画タイトル": {"rich_text": rt(manga_title)},
-        }
-    })
+
+    existing_id = find_calendar_entry(manga_title)
+    if existing_id:
+        # 既存エントリを更新（YouTube URL・ステータスのみ）
+        notion("PATCH", f"/pages/{existing_id}", {
+            "properties": {
+                "YouTube URL": {"url": youtube_url},
+                "ステータス":  {"select": {"name": status}},
+            }
+        })
+        log(f"📅 カレンダー更新: {manga_title} → {status}")
+    else:
+        # 新規作成
+        notion("POST", "/pages", {
+            "parent": {"database_id": CALENDAR_DB_ID},
+            "properties": {
+                "動画タイトル": {"title": rt(title)},
+                "アカウント":   {"select": {"name": account}},
+                "公開日時":     {"date": {"start": date_str}},
+                "ステータス":   {"select": {"name": status}},
+                "YouTube URL":  {"url": youtube_url},
+                "X URL":        {"url": x_url} if x_url else {"url": None},
+                "漫画タイトル": {"rich_text": rt(manga_title)},
+            }
+        })
+        log(f"📅 カレンダー新規登録: {manga_title} → {status}")
 
 
 def update_notion_uploaded(page_id, youtube_url):
@@ -368,15 +396,16 @@ def post_comment(video_id: str, x_url: str):
 PENDING_FILE = Path.home() / ".config" / "dmm-youtube" / "pending_comments.json"
 
 
-def save_pending_comment(video_id: str, x_url: str, title: str):
+def save_pending_comment(video_id: str, x_url: str, title: str, manga_title: str = ""):
     """公開待ちコメントをpendingリストに保存"""
     PENDING_FILE.parent.mkdir(parents=True, exist_ok=True)
     pending = json.loads(PENDING_FILE.read_text()) if PENDING_FILE.exists() else []
     pending.append({
-        "video_id":  video_id,
-        "x_url":     x_url,
-        "title":     title,
-        "added_at":  datetime.now().isoformat(),
+        "video_id":    video_id,
+        "x_url":       x_url,
+        "title":       title,
+        "manga_title": manga_title,
+        "added_at":    datetime.now().isoformat(),
     })
     PENDING_FILE.write_text(json.dumps(pending, ensure_ascii=False, indent=2))
 
@@ -416,6 +445,15 @@ def check_and_post_pending():
         if privacy == "public":
             log(f"🎉 公開検知: {title} ({video_id})")
             post_comment(video_id, x_url)
+            # カレンダーを「公開済み」に更新
+            manga_title = item.get("manga_title", "")
+            if manga_title:
+                existing_id = find_calendar_entry(manga_title)
+                if existing_id:
+                    notion("PATCH", f"/pages/{existing_id}", {
+                        "properties": {"ステータス": {"select": {"name": "公開済み"}}}
+                    })
+                    log(f"📅 カレンダー更新: 公開済み ({manga_title})")
         elif privacy == "deleted":
             log(f"🗑  削除済みのためスキップ: {video_id}")
         else:
@@ -460,7 +498,8 @@ def main():
         props = get_notion_page(args.page_id)
         manga_title = props.get("manga_title", "")
         if not title:
-            title = f"続きはコメ欄⬇️【{manga_title}】 #漫画 #Shorts" if manga_title else ""
+            clean_manga = re.sub(r'[①②③④⑤⑥⑦⑧⑨⑩]+$', '', manga_title).strip()
+            title = f"続きはコメ欄⬇️【{clean_manga}】 #漫画 #Shorts" if clean_manga else ""
         description = description or (props.get("description") or "") + "\n" + (props.get("affiliate_url") or "")
 
     if not video_path or not video_path.exists():
@@ -508,7 +547,8 @@ def main():
     # サムネイル設定（動画と同名の _thumb.png があれば自動セット）
     thumbnail_path = video_path.parent / f"{video_path.stem}_thumb.png"
     if thumbnail_path.exists():
-        log("🖼  サムネイル設定中...")
+        log("🖼  サムネイル設定中（動画処理待機10秒）...")
+        time.sleep(10)
         set_thumbnail(video_id, thumbnail_path)
     else:
         log("ℹ️  サムネイルファイルなし → スキップ")
@@ -516,14 +556,18 @@ def main():
     if x_url:
         log("📝 概要欄を更新中...")
         update_description(video_id, title, x_url)
-        log("💬 コメント投稿中...")
-        post_comment(video_id, x_url)
+        if publish_at:
+            save_pending_comment(video_id, x_url, title, manga_title=props.get("manga_title", ""))
+            log("💬 コメント保存済み（公開後に自動投稿）")
+        else:
+            log("💬 コメント投稿中...")
+            post_comment(video_id, x_url)
 
     # Notionページを更新 + 投稿カレンダーに記録
     if args.page_id and NOTION_TOKEN:
         update_notion_uploaded(args.page_id, video_url)
         _manga_title = props.get("manga_title", "") if args.page_id else ""
-        register_to_calendar(_manga_title, video_url, x_url or "")
+        register_to_calendar(_manga_title, video_url, x_url or "", publish_at=publish_at)
         log("✅ Notion更新 + カレンダー登録完了")
 
     print(f"""
