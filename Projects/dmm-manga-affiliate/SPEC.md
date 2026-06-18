@@ -2,7 +2,7 @@
 type: spec
 title: DMMマンガアフィリエイト 仕様書（単一の真実のソース）
 updated: 2026-06-18
-version: 1.0
+version: 1.1
 ---
 
 # ⚠️ このファイルの使い方
@@ -81,8 +81,10 @@ version: 1.0
 【Claude Code（手動）】
 ⑬ youtube-uploader.py を実行
    → YouTube Shortsに即公開で投稿（Notionで動画確認済みのため）
+   → サムネイルを page1.png（Canvaの1枚目）に自動設定
    → 概要欄に XのURL を追記
-   → コメントは公開後に自動投稿（pending機構・約5分後）
+   → コメントは投稿直後に投稿（x_url付き）
+   ※ 予約投稿の場合: privacyStatus=private + publishAt で指定時刻に自動公開（実装予定）
 ```
 
 ---
