@@ -36,7 +36,7 @@ REDIRECT_URI  = "http://localhost:8080"
 
 # YouTube動画のデフォルト設定
 DEFAULT_CATEGORY   = "2"       # Entertainment
-DEFAULT_PRIVACY    = "private" # 最初はprivateで安全に
+DEFAULT_PRIVACY    = "public"  # Notionで動画確認済みのため即公開
 DEFAULT_TAGS       = ["漫画", "マンガ", "アニメ", "ショート", "Shorts"]
 
 
