@@ -18,9 +18,12 @@ from pathlib import Path
 from datetime import datetime
 
 # ── 設定 ─────────────────────────────────────────────────────────────────────
-CREDS_DIR    = Path.home() / ".config" / "dmm-youtube"
-TOKEN_FILE   = CREDS_DIR / "token.json"
-CLIENT_FILE  = CREDS_DIR / "client_secret.json"
+CREDS_DIR          = Path.home() / ".config" / "dmm-youtube"
+TOKEN_FILE         = CREDS_DIR / "token.json"
+CLIENT_FILE        = CREDS_DIR / "client_secret.json"
+UPLOAD_HISTORY_FILE = CREDS_DIR / "upload_history.json"
+MIN_UPLOAD_INTERVAL_HOURS = 2  # アップロード間の最低間隔
+MAX_UPLOADS_PER_DAY       = 2  # 1日1アカウントの上限
 
 NOTION_TOKEN         = os.environ.get("NOTION_TOKEN", "")
 NOTION_CONTENT_DB_ID = os.environ.get("NOTION_CONTENT_DB_ID", "")
@@ -42,6 +45,45 @@ DEFAULT_TAGS       = ["漫画", "マンガ", "アニメ", "ショート", "Short
 
 def log(msg):
     print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
+
+
+# ── アップロード間隔管理 ──────────────────────────────────────────────────────
+def can_upload_now() -> tuple:
+    """アップロード可否を確認。Returns: (ok: bool, reason: str)"""
+    from datetime import timezone
+    today = datetime.now().strftime("%Y-%m-%d")
+    if not UPLOAD_HISTORY_FILE.exists():
+        return True, ""
+    history = json.loads(UPLOAD_HISTORY_FILE.read_text())
+
+    # 1日の上限チェック
+    today_count = history.get("today_count", {}).get(today, 0)
+    if today_count >= MAX_UPLOADS_PER_DAY:
+        return False, f"本日の上限（{MAX_UPLOADS_PER_DAY}本）に達しました。明日以降に持ち越します"
+
+    # 間隔チェック
+    last_str = history.get("last_upload_at", "")
+    if last_str:
+        last_dt = datetime.fromisoformat(last_str)
+        elapsed = (datetime.now(timezone.utc) - last_dt).total_seconds() / 3600
+        if elapsed < MIN_UPLOAD_INTERVAL_HOURS:
+            wait = round(MIN_UPLOAD_INTERVAL_HOURS - elapsed, 1)
+            return False, f"前回アップロードから{wait}時間未満のためスキップ（あと約{wait}時間後）"
+
+    return True, ""
+
+
+def record_upload():
+    """アップロード完了時刻と本日の本数を記録"""
+    from datetime import timezone
+    today = datetime.now().strftime("%Y-%m-%d")
+    CREDS_DIR.mkdir(parents=True, exist_ok=True)
+    history = json.loads(UPLOAD_HISTORY_FILE.read_text()) if UPLOAD_HISTORY_FILE.exists() else {}
+    today_count = history.get("today_count", {})
+    today_count[today] = today_count.get(today, 0) + 1
+    history["last_upload_at"] = datetime.now(timezone.utc).isoformat()
+    history["today_count"]    = today_count
+    UPLOAD_HISTORY_FILE.write_text(json.dumps(history, indent=2))
 
 
 # ── Notion ────────────────────────────────────────────────────────────────────
@@ -528,6 +570,12 @@ def main():
         except Exception:
             publish_at = None
 
+    # アップロード制限チェック（1日2本・2時間間隔）
+    ok, reason = can_upload_now()
+    if not ok:
+        print(f"⏳ {reason}")
+        sys.exit(0)
+
     print(f"\n📺 YouTube投稿開始")
     print(f"   動画: {video_path.name}")
     print(f"   タイトル: {title}")
@@ -538,6 +586,7 @@ def main():
 
     video_id, video_url = upload_video(video_path, title, description,
                                         privacy=args.privacy, publish_at=publish_at)
+    record_upload()  # アップロード時刻を記録（次回の間隔チェック用）
 
     # X URLが指定されていれば概要欄・コメントに追加
     x_url = args.x_url
