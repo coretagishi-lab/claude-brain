@@ -70,12 +70,14 @@ def get_notion_page(page_id):
     props = res.get("properties", {})
     def text(k):
         return "".join(p.get("plain_text", "") for p in props.get(k, {}).get("rich_text", []))
+    publish_at_raw = props.get("publish_at", {}).get("date", {})
     return {
         "manga_title":   text("manga_title"),
         "youtube_title": text("youtube_title"),
         "description":   text("description"),
         "affiliate_url": props.get("affiliate_url", {}).get("url", ""),
         "x_post_url":    text("x_post_url"),
+        "publish_at":    publish_at_raw.get("start") if publish_at_raw else None,
     }
 
 
@@ -219,7 +221,8 @@ def get_access_token():
 
 # ── YouTube 投稿 ──────────────────────────────────────────────────────────────
 def upload_video(video_path: Path, title: str, description: str,
-                 tags: list = None, privacy: str = DEFAULT_PRIVACY) -> str:
+                 tags: list = None, privacy: str = DEFAULT_PRIVACY,
+                 publish_at: str = None) -> str:
     """動画をYouTubeにアップロードしてURLを返す"""
     access_token = get_access_token()
     tags = tags or DEFAULT_TAGS
@@ -233,8 +236,9 @@ def upload_video(video_path: Path, title: str, description: str,
             "categoryId":  DEFAULT_CATEGORY,
         },
         "status": {
-            "privacyStatus":           privacy,
+            "privacyStatus":           "private" if publish_at else privacy,
             "selfDeclaredMadeForKids": False,
+            **({"publishAt": publish_at} if publish_at else {}),
         }
     }, ensure_ascii=False).encode("utf-8")
 
@@ -466,18 +470,39 @@ def main():
         # タイトル未指定の場合はデフォルト
         title = "続きはコメ欄⬇️ #漫画 #Shorts"
 
+    # Notionからpublish_atを取得
+    publish_at = None
+    props = {}
+    if args.page_id and NOTION_TOKEN:
+        props = get_notion_page(args.page_id)
+        publish_at = props.get("publish_at")
+
+    # publish_atが未来なら予約投稿、過去or未設定なら即公開
+    if publish_at:
+        from datetime import datetime, timezone
+        try:
+            pub_dt = datetime.fromisoformat(publish_at)
+            if pub_dt.tzinfo is None:
+                pub_dt = pub_dt.replace(tzinfo=timezone.utc)
+            if pub_dt <= datetime.now(timezone.utc):
+                publish_at = None  # 過去の時刻は即公開
+        except Exception:
+            publish_at = None
+
     print(f"\n📺 YouTube投稿開始")
     print(f"   動画: {video_path.name}")
     print(f"   タイトル: {title}")
-    print(f"   公開設定: {args.privacy}")
+    if publish_at:
+        print(f"   予約公開: {publish_at}")
+    else:
+        print(f"   公開設定: 即公開")
 
     video_id, video_url = upload_video(video_path, title, description,
-                                        privacy=args.privacy)
+                                        privacy=args.privacy, publish_at=publish_at)
 
     # X URLが指定されていれば概要欄・コメントに追加
     x_url = args.x_url
-    if args.page_id and NOTION_TOKEN and not x_url:
-        props = get_notion_page(args.page_id)
+    if not x_url:
         x_url = props.get("x_post_url", "")
 
     # サムネイル設定（動画と同名の _thumb.png があれば自動セット）
