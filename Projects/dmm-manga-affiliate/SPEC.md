@@ -80,9 +80,9 @@ version: 1.0
 
 【Claude Code（手動）】
 ⑬ youtube-uploader.py を実行
-   → YouTube Shortsに投稿（最初はprivate）
-   → 概要欄とコメント欄に XのURL を追記
-   → tagishiが公開設定に変更
+   → YouTube Shortsに即公開で投稿（Notionで動画確認済みのため）
+   → 概要欄に XのURL を追記
+   → コメントは公開後に自動投稿（pending機構・約5分後）
 ```
 
 ---
