@@ -79,6 +79,27 @@ def get_notion_page(page_id):
     }
 
 
+CALENDAR_DB_ID = "3831cad4-aa98-81c2-9c66-e7f9ee3597e9"
+
+def register_to_calendar(manga_title: str, youtube_url: str, x_url: str,
+                          account: str = "アカウント①", publish_at: str = None):
+    """投稿カレンダーDBに記録する"""
+    now = publish_at or datetime.now().strftime("%Y-%m-%dT%H:%M:%S+09:00")
+    title = f"秒で出しちゃった{manga_title}男の漫画"
+    notion("POST", "/pages", {
+        "parent": {"database_id": CALENDAR_DB_ID},
+        "properties": {
+            "動画タイトル": {"title": rt(title)},
+            "アカウント":   {"select": {"name": account}},
+            "公開日時":     {"date": {"start": now}},
+            "ステータス":   {"select": {"name": "公開済み"}},
+            "YouTube URL":  {"url": youtube_url},
+            "X URL":        {"url": x_url} if x_url else {"url": None},
+            "漫画タイトル": {"rich_text": rt(manga_title)},
+        }
+    })
+
+
 def update_notion_uploaded(page_id, youtube_url):
     notion("PATCH", f"/pages/{page_id}", {
         "properties": {"status": {"select": {"name": "uploaded"}}}
@@ -473,10 +494,12 @@ def main():
         log("💬 コメント投稿中...")
         post_comment(video_id, x_url)
 
-    # Notionページを更新
+    # Notionページを更新 + 投稿カレンダーに記録
     if args.page_id and NOTION_TOKEN:
         update_notion_uploaded(args.page_id, video_url)
-        log("✅ Notion更新完了")
+        _manga_title = props.get("manga_title", "") if args.page_id else ""
+        register_to_calendar(_manga_title, video_url, x_url or "")
+        log("✅ Notion更新 + カレンダー登録完了")
 
     print(f"""
 ════════════════════════════════════════════
