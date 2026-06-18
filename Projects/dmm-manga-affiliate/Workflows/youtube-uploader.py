@@ -416,7 +416,7 @@ def main():
         manga_title = props.get("manga_title", "")
         if not title:
             title = f"続きはコメ欄⬇️【{manga_title}】 #漫画 #Shorts" if manga_title else ""
-        description = description or props.get("description", "") + "\n" + props.get("affiliate_url", "")
+        description = description or (props.get("description") or "") + "\n" + (props.get("affiliate_url") or "")
 
     if not video_path or not video_path.exists():
         print("❌ 動画ファイルを --video で指定してください")
