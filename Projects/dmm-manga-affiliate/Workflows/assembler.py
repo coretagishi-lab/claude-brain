@@ -493,9 +493,12 @@ def save_canva_job(props: dict, image_urls: list, telops: list) -> Path:
     out_dir    = AUDIO_DIR / f"{datetime.now().strftime('%Y%m%d')}_{safe_title}"
     out_dir.mkdir(parents=True, exist_ok=True)
     state_file = out_dir / "canva_job.json"
+    # CanvaタイトルはNotionのmanga_titleから末尾の丸数字（①②など）を除去する
+    canva_title = re.sub(r'[①②③④⑤⑥⑦⑧⑨⑩]+$', '', props['manga_title']).strip()
     state = {
         "page_id":               props["page_id"],
-        "manga_title":           props["manga_title"],
+        "manga_title":           props["manga_title"],   # Notion用（①②含む）
+        "canva_title":           canva_title,            # Canva表示用（①②除去）
         "x_post_url":            props.get("x_post_url", ""),
         "image_urls":            image_urls,
         "image_assignments":     None,

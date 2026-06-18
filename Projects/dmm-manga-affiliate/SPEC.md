@@ -161,6 +161,10 @@ Bot      Code       確認         Code          Code        Code
 ```
 > **タイトル要素の特定方法**: copy-design後にstart-editing-transactionを実行し、page1のテキスト要素をtop座標昇順ソートして3番目のelement_idを使う
 
+> ⚠️ **①②③などのバリエーション番号はCanvaタイトルに含めない**
+> Notionのmanga_titleが「フレンドとの①」でも、Canvaには「フレンドとの」だけ書く
+> 正規表現で末尾の丸数字を除去: `re.sub(r'[①②③④⑤⑥⑦⑧⑨⑩]$', '', manga_title).strip()`
+
 **テロップ（pages 2〜9）:**
 ```
 ① page2: PBG3BLhBZW05Kb0W-LBXt7PvjSgmS6B4V
@@ -187,9 +191,10 @@ Bot      Code       確認         Code          Code        Code
 
 **カバー画像スロット:**
 ```
-page1カバー: PBs1sTlCLqHDSG14-LBsPl21hPyJcffJx
-page10カバー: PBQRTjML4Gm5msr7-LBB8BKH3dpcWzwx8
+page1カバー: PBs1sTlCLqHDSG14-LBsPl21hPyJcffJx   ← 必ず差し替える
+page10カバー: PBQRTjML4Gm5msr7-LBB8BKH3dpcWzwx8  ← 必ず差し替える（忘れやすい）
 ```
+> ⚠️ **page10カバーを忘れないこと** — エンドページのCTA画像も漫画画像に差し替える
 
 ---
 
