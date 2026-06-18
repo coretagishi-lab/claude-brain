@@ -5,6 +5,11 @@
 - Projects/dmm-manga-affiliate/SPEC.md ← このビジネスの憲法・最優先
 - Projects/dmm-manga-affiliate/Knowledge/experience.md
 
+そして必ず以下を実行すること（launchdデーモンが最新ルールを使えるようにするため）：
+```bash
+cp Projects/dmm-manga-affiliate/Knowledge/experience.md ~/Library/ai-brain/experience.md
+```
+
 ---
 
 ## ⛔ dmm-manga-affiliate の作業ルール（最重要）
