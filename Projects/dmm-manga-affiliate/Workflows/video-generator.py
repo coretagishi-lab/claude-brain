@@ -649,7 +649,8 @@ def setup_mode(task_id: str = "", design_id_override: str = ""):
         log(f"  ✅ 音声生成完了 → {audio_dir}")
 
         # ── イントロ / アウトロ音声生成（女性ボイス固定）──────────────
-        intro_text = f"秒で出しちゃった{manga_title}男の漫画"
+        base_title = re.sub(r'[①②③④⑤⑥⑦⑧⑨⑩]+$', '', manga_title).strip()
+        intro_text = f"秒で出しちゃった{base_title}男の漫画"
         outro_text = "続きは動画の概要欄かコメント欄"
 
         intro_wav_path = audio_dir / "intro.wav"
