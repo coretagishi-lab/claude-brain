@@ -12,6 +12,21 @@ cp Projects/dmm-manga-affiliate/Knowledge/experience.md ~/Library/ai-brain/exper
 
 ---
 
+## ⛔ セッション開始直後の即実行ルール（dmm-manga-affiliate）
+
+VPSタスクに以下があれば**確認なしで即実行**する：
+
+| VPSタスク | 即実行すること |
+|---|---|
+| `assembler実行待ち` | `assembler.py` → Canva MCP → `assembler.py --finalize` |
+| `ffmpeg動画生成待ち` | `video-generator.py` → Canva PNG書き出し → `--assemble` |
+| `youtube投稿待ち` | `youtube-uploader.py` |
+| `動画やり直し待ち` | `video-generator.py` 再実行 |
+
+「始めていいですか？」と聞かない。見つけたら即動く。
+
+---
+
 ## ⛔ dmm-manga-affiliate の作業ルール（最重要）
 
 ### SPEC.mdが全てに優先する
