@@ -53,7 +53,7 @@ VOICEVOX_SPEAKER_FEMALE = 47  # ナースロボ＿タイプT ノーマル（♀ 
 VOICEVOX_SPEAKER_MALE   = 13  # 青山龍星 ノーマル（♂）
 
 # ── Canva テンプレート情報（handoff.md より） ──────────────────────────────
-TEMPLATE_ID = "DAHKogY0SBo"
+TEMPLATE_ID = "DAHMbaP-OTo"
 
 TELOP_ELEM_IDS = [
     "PBG3BLhBZW05Kb0W-LBXt7PvjSgmS6B4V",  # ① ページ2
@@ -78,7 +78,7 @@ IMAGE_SLOT_IDS = [
 ]
 
 # ページ1（トップページ）カバー画像スロット
-PAGE1_COVER_SLOT_ID = "PBs1sTlCLqHDSG14-LBW9GpN7ycfQ2ptS"
+PAGE1_COVER_SLOT_ID = "PBs1sTlCLqHDSG14-LBsPl21hPyJcffJx"
 
 # ページ10（エンドページ）カバー画像スロット
 END_PAGE_COVER_SLOT_ID = "PBQRTjML4Gm5msr7-LBB8BKH3dpcWzwx8"

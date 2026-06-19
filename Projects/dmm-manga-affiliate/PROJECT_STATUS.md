@@ -4,7 +4,7 @@ current_status: active
 priority: high
 due_date: ""
 review_waiting: false
-updated_at: 2026-06-18
+updated_at: 2026-06-19
 ---
 
 ## current_goal
@@ -12,10 +12,10 @@ updated_at: 2026-06-18
 
 ## next_action
 - 次の素材をDiscordに投稿して台本生成→Canva→動画→YouTube投稿の全フローをテストする
-- サムネイル設定（10秒待機修正）が実際に機能するか次回投稿で確認する
+- assembler.pyのバグ修正済み（2026-06-19）なので次回のassembler実行で確認
 
 ## blocker
-- なし（セッション中はCronで全工程自動検知・実行可能）
+- なし（セッション中はMonitorで30秒おきに全工程自動検知・実行可能）
 
 ## latest_output
 

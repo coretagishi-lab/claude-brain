@@ -1,7 +1,7 @@
 ---
 type: handoff
 title: 次チャットへの引き継ぎ
-updated: 2026-06-18
+updated: 2026-06-19
 ---
 
 # ⚠️ 最重要ルール（毎回必ず読む）
@@ -24,24 +24,53 @@ updated: 2026-06-18
 
 # ⚡ セッション開始直後に必ずやること
 
-## 1. CronCreate でVPS自動検知を再登録（毎セッション必須）
-セッションが閉じると消えるため毎回再登録が必要。
+## 1. Monitor でVPS自動検知を起動（毎セッション必須・CronCreateより優れている）
 
-```
-/loop 2m VPSタスクチェック＆自動実行（バックグラウンド・無言動作）:
-python3 /Users/tagishitakuya/Desktop/ClaudeProjects/AI-Brain/Shared/Workflows/vps-task-checker.py を実行。
-タスクがあれば CLAUDE.md の即実行ルールに従って処理する（assembler実行待ち→assembler.py+Canva MCP、ffmpeg動画生成待ち→video-generator.py+Canva PNG書き出し+assemble、youtube投稿待ち→youtube-uploader.py、動画やり直し待ち→video-generator.py再実行）。
-その後 python3 /Users/tagishitakuya/Desktop/ClaudeProjects/AI-Brain/Projects/dmm-manga-affiliate/Workflows/youtube-uploader.py --check-pending を実行。
-タスクがない・pendingコメントがない場合は何も出力しない。タスクを処理した場合のみ結果を報告する。
+**CronCreateは使わない。** タスクなしでも毎回会話に積まれてコンテキストを消費する。
+**Monitorを使う。** タスクあり時のみ通知・コンテキスト節約・30秒以内に反応。
+
+以下のMonitorを毎セッション開始時に起動する:
+
+```python
+# Monitor ツールで以下を persistent=true で実行
+while true; do
+  result=$(python3 /Users/tagishitakuya/Desktop/ClaudeProjects/AI-Brain/Shared/Workflows/vps-task-checker.py 2>/dev/null)
+  if ! echo "$result" | grep -q "VPS待機タスクなし"; then
+    echo "🔔 VPSタスク検知: $result"
+  fi
+  pending=$(python3 /Users/tagishitakuya/Desktop/ClaudeProjects/AI-Brain/Projects/dmm-manga-affiliate/Workflows/youtube-uploader.py --check-pending 2>&1)
+  if [ -n "$pending" ]; then
+    echo "🔔 pending: $pending"
+  fi
+  sleep 30
+done
 ```
 
-## 2. ライブログを読む（直前セッションの全記録）
+Monitorが `🔔 VPSタスク検知:` を通知したら CLAUDE.md の即実行ルールに従って処理する。
+Monitorが `🔔 pending:` を通知したらコメント投稿完了の確認を行う。
+
+## 2. pending_comments.json を即確認（セッション開始直後に必ず）
+
+```bash
+cat ~/.config/dmm-youtube/pending_comments.json
+```
+
+**エントリがあれば即実行:**
+```bash
+python3 /Users/tagishitakuya/Desktop/ClaudeProjects/AI-Brain/Projects/dmm-manga-affiliate/Workflows/youtube-uploader.py --check-pending
+```
+
+**なぜ重要か**: セッション終了でMonitorが死ぬ → 予約動画が公開されてもcheck-pendingが走らない → コメント未投稿になる。
+2026-06-19に実際に発生した（フレンドとの①が21:24公開後、セッション終了済みで誰も検知しなかった）。
+セッション開始時に即チェックすることで取りこぼしゼロになる。
+
+## 3. ライブログを読む（直前セッションの全記録）
 ```bash
 cat Projects/dmm-manga-affiliate/Logs/live-session.md
 ```
 → 前のセッションで何をやったか・現在の状態が全部わかる
 
-## 3. /tmp/ai-brain/ の確認
+## 4. /tmp/ai-brain/ の確認
 ```bash
 ls /tmp/ai-brain/*/canva_job.json 2>/dev/null
 ```
