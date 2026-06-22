@@ -216,13 +216,42 @@ def load_experience_rules():
     return telop_rules, improve_rules
 
 
+def get_variation_number(manga_title: str) -> int:
+    """manga_titleの末尾丸数字からバリエーション番号（1〜6）を返す"""
+    m = re.search(r'[①②③④⑤⑥⑦⑧⑨⑩]$', manga_title)
+    if m:
+        return '①②③④⑤⑥⑦⑧⑨⑩'.index(m.group(0)) + 1
+    return 1
+
+
 def generate_content(manga_title, affiliate_url, img_paths, experience_rules):
     telop_rules, improve_rules = experience_rules
+    variation_num = get_variation_number(manga_title)
+    total_variations = 6
+
+    # バリエーションごとに異なる視点を指示
+    variation_hints = {
+        1: "登場人物の内面の葛藤・躊躇い・ドキドキする瞬間にフォーカス",
+        2: "身体的な接触・距離感・触れる瞬間の緊張感にフォーカス",
+        3: "欲望が決壊する寸前・理性と本能の狭間にフォーカス",
+        4: "相手への独占欲・嫉妬・「もっと」という衝動にフォーカス",
+        5: "禁断感・後ろめたさ・それでも止められない感情にフォーカス",
+        6: "クライマックス直前の高揚感・「もう戻れない」という決壊にフォーカス",
+    }
+    hint = variation_hints.get(variation_num, variation_hints[1])
 
     system_prompt = f"""あなたはDMMアフィリエイト漫画動画のテロップライターです。
 漫画画像を読んでコマの内容・状況・感情を把握し、8行のテロップ台本を生成します。
 
 {telop_rules}
+
+【このバリエーションの指針】
+これは同じ漫画の{total_variations}バリエーション中の{variation_num}番目です。
+他のバリエーションと重複しないよう、以下の視点を特に強調してください：
+「{hint}」
+
+視聴者（男性）がムラムラする内容にすること。直接的・露骨な表現は禁止。
+漫画に描かれていない心理・セリフを想像して補足してもOK。
 
 【出力形式】
 - telops はセリフ形式・①〜⑧の番号付き・「」不要
@@ -239,6 +268,7 @@ def generate_content(manga_title, affiliate_url, img_paths, experience_rules):
     files_desc = "\n".join(f"- {p}" for p in img_paths) if img_paths else "（画像なし）"
     user_text = f"""漫画タイトル: {manga_title}
 アフィリエイトURL: {affiliate_url or "（未設定）"}
+バリエーション: {variation_num}/{total_variations}（{hint}）
 
 以下の漫画画像ファイルを全て読み込んで、コマの状況・感情を各行に反映したテロップを生成してください。
 {files_desc}

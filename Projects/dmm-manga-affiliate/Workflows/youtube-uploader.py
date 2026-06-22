@@ -18,12 +18,31 @@ from pathlib import Path
 from datetime import datetime
 
 # ── 設定 ─────────────────────────────────────────────────────────────────────
-CREDS_DIR          = Path.home() / ".config" / "dmm-youtube"
-TOKEN_FILE         = CREDS_DIR / "token.json"
-CLIENT_FILE        = CREDS_DIR / "client_secret.json"
-UPLOAD_HISTORY_FILE = CREDS_DIR / "upload_history.json"
+_BASE_CREDS_DIR           = Path.home() / ".config" / "dmm-youtube"
+CLIENT_FILE               = _BASE_CREDS_DIR / "client_secret.json"  # 全アカウント共用
 MIN_UPLOAD_INTERVAL_HOURS = 2  # アップロード間の最低間隔
 MAX_UPLOADS_PER_DAY       = 2  # 1日1アカウントの上限
+
+# アカウント別設定（カレンダー表示名）
+ACCOUNT_NAMES = {1: "アカウント①", 2: "アカウント②", 3: "アカウント③", 4: "アカウント④"}
+
+def get_account_number(manga_title: str) -> int:
+    """manga_titleの末尾丸数字からアカウント番号を返す。
+    ①②③→1、④⑤⑥→2、⑦⑧⑨→3（3バリエーション/アカウント）"""
+    m = re.search(r'[①②③④⑤⑥⑦⑧⑨⑩]$', manga_title)
+    if m:
+        idx = '①②③④⑤⑥⑦⑧⑨⑩'.index(m.group(0))
+        return (idx // 3) + 1
+    return 1
+
+def get_creds_dir(account: int = 1) -> Path:
+    """アカウント別の認証情報ディレクトリを返す。account1は旧パスとの後方互換あり"""
+    d = _BASE_CREDS_DIR / f"account{account}"
+    # account1: 旧パス(~/.config/dmm-youtube/)にtoken.jsonがあればそちらを使う
+    if account == 1 and (_BASE_CREDS_DIR / "token.json").exists() and not (d / "token.json").exists():
+        return _BASE_CREDS_DIR
+    d.mkdir(parents=True, exist_ok=True)
+    return d
 
 NOTION_TOKEN         = os.environ.get("NOTION_TOKEN", "")
 NOTION_CONTENT_DB_ID = os.environ.get("NOTION_CONTENT_DB_ID", "")
@@ -48,13 +67,14 @@ def log(msg):
 
 
 # ── アップロード間隔管理 ──────────────────────────────────────────────────────
-def can_upload_now() -> tuple:
+def can_upload_now(account: int = 1) -> tuple:
     """アップロード可否を確認。Returns: (ok: bool, reason: str)"""
     from datetime import timezone
     today = datetime.now().strftime("%Y-%m-%d")
-    if not UPLOAD_HISTORY_FILE.exists():
+    upload_history_file = get_creds_dir(account) / "upload_history.json"
+    if not upload_history_file.exists():
         return True, ""
-    history = json.loads(UPLOAD_HISTORY_FILE.read_text())
+    history = json.loads(upload_history_file.read_text())
 
     # 1日の上限チェック
     today_count = history.get("today_count", {}).get(today, 0)
@@ -73,17 +93,17 @@ def can_upload_now() -> tuple:
     return True, ""
 
 
-def record_upload():
+def record_upload(account: int = 1):
     """アップロード完了時刻と本日の本数を記録"""
     from datetime import timezone
     today = datetime.now().strftime("%Y-%m-%d")
-    CREDS_DIR.mkdir(parents=True, exist_ok=True)
-    history = json.loads(UPLOAD_HISTORY_FILE.read_text()) if UPLOAD_HISTORY_FILE.exists() else {}
+    upload_history_file = get_creds_dir(account) / "upload_history.json"
+    history = json.loads(upload_history_file.read_text()) if upload_history_file.exists() else {}
     today_count = history.get("today_count", {})
     today_count[today] = today_count.get(today, 0) + 1
     history["last_upload_at"] = datetime.now(timezone.utc).isoformat()
     history["today_count"]    = today_count
-    UPLOAD_HISTORY_FILE.write_text(json.dumps(history, indent=2))
+    upload_history_file.write_text(json.dumps(history, indent=2))
 
 
 # ── Notion ────────────────────────────────────────────────────────────────────
@@ -219,9 +239,10 @@ class _AuthHandler(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
 
 
-def run_auth_flow():
+def run_auth_flow(account: int = 1):
     client_id, client_secret = load_client_secret()
-    CREDS_DIR.mkdir(parents=True, exist_ok=True)
+    creds_dir = get_creds_dir(account)
+    creds_dir.mkdir(parents=True, exist_ok=True)
 
     auth_url = (
         "https://accounts.google.com/o/oauth2/auth"
@@ -260,19 +281,21 @@ def run_auth_flow():
 
     token["client_id"]     = client_id
     token["client_secret"] = client_secret
-    TOKEN_FILE.write_text(json.dumps(token, indent=2))
-    TOKEN_FILE.chmod(0o600)
+    token_file = creds_dir / "token.json"
+    token_file.write_text(json.dumps(token, indent=2))
+    token_file.chmod(0o600)
 
-    print(f"✅ 認証成功！トークンを保存しました: {TOKEN_FILE}")
+    print(f"✅ 認証成功！トークンを保存しました: {token_file}")
     print("   次回から --auth は不要です。")
 
 
-def get_access_token():
-    if not TOKEN_FILE.exists():
-        print("❌ 認証が完了していません。先に: python3 youtube-uploader.py --auth")
+def get_access_token(account: int = 1):
+    token_file = get_creds_dir(account) / "token.json"
+    if not token_file.exists():
+        print(f"❌ アカウント{account}の認証が完了していません。先に: python3 youtube-uploader.py --auth --account {account}")
         sys.exit(1)
 
-    token = json.loads(TOKEN_FILE.read_text())
+    token = json.loads(token_file.read_text())
 
     # refresh_tokenでアクセストークンを更新
     body = urllib.parse.urlencode({
@@ -292,9 +315,9 @@ def get_access_token():
 # ── YouTube 投稿 ──────────────────────────────────────────────────────────────
 def upload_video(video_path: Path, title: str, description: str,
                  tags: list = None, privacy: str = DEFAULT_PRIVACY,
-                 publish_at: str = None) -> str:
+                 publish_at: str = None, account: int = 1) -> str:
     """動画をYouTubeにアップロードしてURLを返す"""
-    access_token = get_access_token()
+    access_token = get_access_token(account)
     tags = tags or DEFAULT_TAGS
 
     # メタデータ
@@ -345,9 +368,9 @@ def upload_video(video_path: Path, title: str, description: str,
     return video_id, video_url
 
 
-def set_thumbnail(video_id: str, thumbnail_path: Path):
+def set_thumbnail(video_id: str, thumbnail_path: Path, account: int = 1):
     """動画のサムネイルを設定する"""
-    access_token = get_access_token()
+    access_token = get_access_token(account)
     img_data = thumbnail_path.read_bytes()
     req = urllib.request.Request(
         f"https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId={video_id}",
@@ -365,9 +388,9 @@ def set_thumbnail(video_id: str, thumbnail_path: Path):
         log(f"⚠️  サムネイル設定失敗 ({e.code}) → スキップ（YouTube Studioから手動設定可）")
 
 
-def update_description(video_id: str, title: str, x_url: str):
+def update_description(video_id: str, title: str, x_url: str, account: int = 1):
     """動画の概要欄を更新する"""
-    access_token = get_access_token()
+    access_token = get_access_token(account)
 
     # 現在のスニペットを取得
     req = urllib.request.Request(
@@ -398,9 +421,9 @@ def update_description(video_id: str, title: str, x_url: str):
         log("✅ 概要欄を更新しました")
 
 
-def post_comment(video_id: str, x_url: str):
+def post_comment(video_id: str, x_url: str, account: int = 1):
     """動画にコメントを投稿する"""
-    access_token = get_access_token()
+    access_token = get_access_token(account)
 
     body = json.dumps({
         "snippet": {
@@ -435,10 +458,11 @@ def post_comment(video_id: str, x_url: str):
 
 
 # ── pending コメント管理 ──────────────────────────────────────────────────────
+# 全アカウント共通の pending ファイル（check_and_post_pending でアカウント判定）
 PENDING_FILE = Path.home() / ".config" / "dmm-youtube" / "pending_comments.json"
 
 
-def save_pending_comment(video_id: str, x_url: str, title: str, manga_title: str = ""):
+def save_pending_comment(video_id: str, x_url: str, title: str, manga_title: str = "", account: int = 1):
     """公開待ちコメントをpendingリストに保存"""
     PENDING_FILE.parent.mkdir(parents=True, exist_ok=True)
     pending = json.loads(PENDING_FILE.read_text()) if PENDING_FILE.exists() else []
@@ -447,14 +471,15 @@ def save_pending_comment(video_id: str, x_url: str, title: str, manga_title: str
         "x_url":       x_url,
         "title":       title,
         "manga_title": manga_title,
+        "account":     account,
         "added_at":    datetime.now().isoformat(),
     })
     PENDING_FILE.write_text(json.dumps(pending, ensure_ascii=False, indent=2))
 
 
-def get_video_privacy(video_id: str) -> str:
+def get_video_privacy(video_id: str, account: int = 1) -> str:
     """YouTube APIで動画の公開設定を取得"""
-    access_token = get_access_token()
+    access_token = get_access_token(account)
     req = urllib.request.Request(
         f"https://www.googleapis.com/youtube/v3/videos?part=status&id={video_id}",
         headers={"Authorization": f"Bearer {access_token}"}
@@ -482,11 +507,12 @@ def check_and_post_pending():
         x_url    = item["x_url"]
         title    = item.get("title", "")
 
-        privacy = get_video_privacy(video_id)
+        item_account = item.get("account", 1)
+        privacy = get_video_privacy(video_id, item_account)
 
         if privacy == "public":
             log(f"🎉 公開検知: {title} ({video_id})")
-            post_comment(video_id, x_url)
+            post_comment(video_id, x_url, item_account)
             # カレンダーを「公開済み」に更新
             manga_title = item.get("manga_title", "")
             if manga_title:
@@ -508,6 +534,7 @@ def check_and_post_pending():
 def main():
     parser = argparse.ArgumentParser(description="YouTube Shorts アップローダー")
     parser.add_argument("--auth",          action="store_true", help="初回認証（ブラウザが開きます）")
+    parser.add_argument("--account",      type=int, default=0, help="アカウント番号（0=manga_titleから自動判定）")
     parser.add_argument("--check-pending", action="store_true", help="公開待ちコメントをチェックして投稿")
     parser.add_argument("--video",       type=str, default="", help="動画ファイルパス")
     parser.add_argument("--title",       type=str, default="", help="動画タイトル")
@@ -519,7 +546,8 @@ def main():
     args = parser.parse_args()
 
     if args.auth:
-        run_auth_flow()
+        account = args.account if args.account > 0 else 1
+        run_auth_flow(account)
         return
 
     if args.check_pending:
@@ -533,12 +561,17 @@ def main():
     title       = args.title
     description = args.description
 
+    # アカウント番号：引数指定 > manga_titleから自動判定 > デフォルト1
+    account = args.account if args.account > 0 else 0
+
     if args.page_id:
         if not NOTION_TOKEN:
             print("❌ NOTION_TOKEN が未設定です")
             sys.exit(1)
         props = get_notion_page(args.page_id)
         manga_title = props.get("manga_title", "")
+        if account == 0:
+            account = get_account_number(manga_title)
         if not title:
             clean_manga = re.sub(r'[①②③④⑤⑥⑦⑧⑨⑩]+$', '', manga_title).strip()
             title = f"続きはコメ欄⬇️【{clean_manga}】 #漫画 #Shorts" if clean_manga else ""
@@ -570,8 +603,11 @@ def main():
         except Exception:
             publish_at = None
 
+    if account == 0:
+        account = 1  # page_idなしで直接--videoを使う場合のデフォルト
+
     # アップロード制限チェック（1日2本・2時間間隔）
-    ok, reason = can_upload_now()
+    ok, reason = can_upload_now(account)
     if not ok:
         print(f"⏳ {reason}")
         sys.exit(0)
@@ -584,9 +620,10 @@ def main():
     else:
         print(f"   公開設定: 即公開")
 
+    log(f"📺 アカウント{account}（{ACCOUNT_NAMES.get(account, f'アカウント{account}')}）で投稿")
     video_id, video_url = upload_video(video_path, title, description,
-                                        privacy=args.privacy, publish_at=publish_at)
-    record_upload()  # アップロード時刻を記録（次回の間隔チェック用）
+                                        privacy=args.privacy, publish_at=publish_at, account=account)
+    record_upload(account)  # アップロード時刻を記録（次回の間隔チェック用）
 
     # X URLが指定されていれば概要欄・コメントに追加
     x_url = args.x_url
@@ -598,25 +635,26 @@ def main():
     if thumbnail_path.exists():
         log("🖼  サムネイル設定中（動画処理待機10秒）...")
         time.sleep(10)
-        set_thumbnail(video_id, thumbnail_path)
+        set_thumbnail(video_id, thumbnail_path, account)
     else:
         log("ℹ️  サムネイルファイルなし → スキップ")
 
     if x_url:
         log("📝 概要欄を更新中...")
-        update_description(video_id, title, x_url)
+        update_description(video_id, title, x_url, account)
         if publish_at:
-            save_pending_comment(video_id, x_url, title, manga_title=props.get("manga_title", ""))
+            save_pending_comment(video_id, x_url, title, manga_title=props.get("manga_title", ""), account=account)
             log("💬 コメント保存済み（公開後に自動投稿）")
         else:
             log("💬 コメント投稿中...")
-            post_comment(video_id, x_url)
+            post_comment(video_id, x_url, account)
 
     # Notionページを更新 + 投稿カレンダーに記録
     if args.page_id and NOTION_TOKEN:
         update_notion_uploaded(args.page_id, video_url)
-        _manga_title = props.get("manga_title", "") if args.page_id else ""
-        register_to_calendar(_manga_title, video_url, x_url or "", publish_at=publish_at)
+        _manga_title  = props.get("manga_title", "") if args.page_id else ""
+        account_name  = ACCOUNT_NAMES.get(account, f"アカウント{account}")
+        register_to_calendar(_manga_title, video_url, x_url or "", account=account_name, publish_at=publish_at)
         log("✅ Notion更新 + カレンダー登録完了")
 
     print(f"""

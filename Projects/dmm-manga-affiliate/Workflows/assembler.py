@@ -52,8 +52,20 @@ VOICEVOX_URL            = "http://localhost:50021"
 VOICEVOX_SPEAKER_FEMALE = 47  # ナースロボ＿タイプT ノーマル（♀ or マーカーなし）
 VOICEVOX_SPEAKER_MALE   = 13  # 青山龍星 ノーマル（♂）
 
-# ── Canva テンプレート情報（handoff.md より） ──────────────────────────────
-TEMPLATE_ID = "DAHMbaP-OTo"
+# ── アカウント別設定（manga_titleの末尾丸数字で自動判定） ──────────────────
+ACCOUNT_CONFIG = {
+    1: {"template_id": "DAHMbaP-OTo"},  # ①テンプレ
+    2: {"template_id": "DAHNHHjLSWE"},  # ②テンプレ
+}
+
+def get_account_number(manga_title: str) -> int:
+    """manga_titleの末尾丸数字からアカウント番号を返す。
+    ①②③→1、④⑤⑥→2、⑦⑧⑨→3（3バリエーション/アカウント）"""
+    m = re.search(r'[①②③④⑤⑥⑦⑧⑨⑩]$', manga_title)
+    if m:
+        idx = '①②③④⑤⑥⑦⑧⑨⑩'.index(m.group(0))
+        return (idx // 3) + 1
+    return 1
 
 TELOP_ELEM_IDS = [
     "PBG3BLhBZW05Kb0W-LBXt7PvjSgmS6B4V",  # ① ページ2
@@ -82,6 +94,10 @@ PAGE1_COVER_SLOT_ID = "PBs1sTlCLqHDSG14-LBsPl21hPyJcffJx"
 
 # ページ10（エンドページ）カバー画像スロット
 END_PAGE_COVER_SLOT_ID = "PBQRTjML4Gm5msr7-LBB8BKH3dpcWzwx8"
+
+# テロップ文字色（♂=青 / ♀=ピンク）
+TELOP_COLOR_MALE   = "#004aad"
+TELOP_COLOR_FEMALE = "#ff66c4"
 
 
 # ── ユーティリティ ────────────────────────────────────────────────────────
@@ -188,6 +204,7 @@ def extract_props(page):
         "script":        txt("script"),
         "image_url":     "".join(p.get("plain_text", "") for p in (page["properties"].get("image_url") or {}).get("rich_text", [])),
         "affiliate_url": (page["properties"].get("affiliate_url") or {}).get("url") or "",
+        "publish_at":    (page["properties"].get("publish_at") or {}).get("date", {}).get("start", "") or "",
     }
 
 
@@ -493,17 +510,38 @@ def save_canva_job(props: dict, image_urls: list, telops: list) -> Path:
     out_dir    = AUDIO_DIR / f"{datetime.now().strftime('%Y%m%d')}_{safe_title}"
     out_dir.mkdir(parents=True, exist_ok=True)
     state_file = out_dir / "canva_job.json"
+    # アカウント番号をmanga_titleの末尾丸数字から判定
+    account = get_account_number(props['manga_title'])
+    template_id = ACCOUNT_CONFIG.get(account, ACCOUNT_CONFIG[1])["template_id"]
+
     # CanvaタイトルはNotionのmanga_titleから末尾の丸数字（①②など）を除去する
     canva_title = re.sub(r'[①②③④⑤⑥⑦⑧⑨⑩]+$', '', props['manga_title']).strip()
+    # Canvaファイル名: 「フレンドとの①/06-26 08:27」形式
+    publish_at = props.get("publish_at", "")
+    if publish_at:
+        try:
+            from datetime import datetime as _dt
+            dt = _dt.fromisoformat(publish_at)
+            publish_at_short = dt.strftime("%m/%d %H:%M")
+        except Exception:
+            publish_at_short = publish_at[:10]
+        canva_design_title = f"{props['manga_title']}/{publish_at_short}"
+    else:
+        canva_design_title = props['manga_title']
     state = {
         "page_id":               props["page_id"],
         "manga_title":           props["manga_title"],   # Notion用（①②含む）
         "canva_title":           canva_title,            # Canva表示用（①②除去）
+        "canva_design_title":    canva_design_title,     # Canvaファイル名（例: フレンドとの①/06-26 08:27）
         "x_post_url":            props.get("x_post_url", ""),
         "image_urls":            image_urls,
         "image_assignments":     None,
         "telops":                [parse_gender_prefix(t)[1] for t in telops],
-        "template_id":           TEMPLATE_ID,
+        "telop_genders":         [("male" if t.startswith("♂") else "female") for t in telops],
+        "telop_color_male":      TELOP_COLOR_MALE,
+        "telop_color_female":    TELOP_COLOR_FEMALE,
+        "account":               account,
+        "template_id":           template_id,
         "design_id":             None,
         "manga_title_elem_id":   None,
         "title_line_from_top":   3,
@@ -605,9 +643,13 @@ def process_page(props: dict, dry: bool = False) -> bool:
     state_file = save_canva_job(props, image_urls, telops)
     log(f"  📋 Canvaジョブ保存: {state_file}")
     print(f"\nCANVA_JOB_FILE={state_file}", flush=True)
+    print(f"  canva_design_title: {canva_design_title}", flush=True)
     print("  ↑ このファイルを Claude Code セッションに渡して:", flush=True)
-    print("    1. image_urls の各画像を確認し telops との対応を決定（image_assignments）", flush=True)
-    print("    2. 各スロットに upload-asset-from-url → update_fill のみ", flush=True)
+    print("    1. copy-design 後に update_title でファイル名を canva_design_title に設定", flush=True)
+    print("    2. image_urls の各画像を確認し telops との対応を決定（image_assignments）", flush=True)
+    print("    3. 各スロットに upload-asset-from-url → update_fill のみ", flush=True)
+    print("    4. 各テロップスロットに replace_text 後、format_text で color のみ変更", flush=True)
+    print(f"       ♂={TELOP_COLOR_MALE} / ♀={TELOP_COLOR_FEMALE}（袋文字エフェクトは触らない）", flush=True)
     return state_file
 
 

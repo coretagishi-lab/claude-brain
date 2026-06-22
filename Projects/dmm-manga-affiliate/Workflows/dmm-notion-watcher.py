@@ -109,9 +109,28 @@ def poll_task(task_type, items):
                 "--source", "dmm-notion-watcher",
             ], timeout=15)
 
+        elif task_type == "動画確認":
+            print(f"[{ts}] [動画確認] 検知: {task_title}", flush=True)
+            if yarinaoshi:
+                subprocess.run([
+                    "python3", REPORTER,
+                    "--title",  f"動画やり直し待ち: {task_title}",
+                    "--detail", f"{summary}\nやり直し指示: {yarinaoshi}",
+                    "--action", "Mac Claude Code: video-generator.py を再実行して動画を作り直す",
+                    "--source", "dmm-notion-watcher",
+                ], timeout=15)
+            else:
+                subprocess.run([
+                    "python3", REPORTER,
+                    "--title",  f"youtube投稿待ち: {task_title}",
+                    "--detail", summary,
+                    "--action", "Mac Claude Code: upload-scheduler.py が公開3日前に自動アップロード",
+                    "--source", "dmm-notion-watcher",
+                ], timeout=15)
+
 
 def poll():
-    for task_type in ["台本確認", "Canva確認"]:
+    for task_type in ["台本確認", "Canva確認", "動画確認"]:
         _, res = notion("POST", f"/databases/{TASK_BOARD_ID}/query", {
             "filter": {"and": [
                 {"property": "ステータス", "select": {"equals": "✅ 確認済み"}},

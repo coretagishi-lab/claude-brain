@@ -54,8 +54,22 @@ VOICEVOX_SPEAKER_FEMALE = 47  # ナースロボ＿タイプT ノーマル
 VOICEVOX_SPEAKER_MALE   = 13  # 青山龍星 ノーマル
 
 MEDIA_BASE = Path("/Users/tagishitakuya/Desktop/ClaudeProjects/漫画アフィリエイト:動画素材")
-BGM_PATH   = MEDIA_BASE / "アカウント①BGM.mp3"
 SE_DIR     = MEDIA_BASE / "効果音"
+
+# ── アカウント別設定（manga_titleの末尾丸数字で自動判定） ──────────────────
+ACCOUNT_CONFIG = {
+    1: {"intro_suffix": "男の漫画",  "bgm": MEDIA_BASE / "アカウント①BGM.mp3"},
+    2: {"intro_suffix": "叡智な漫画", "bgm": MEDIA_BASE / "アカウント①BGM.mp3"},  # ②BGM未設定→①と同じ
+}
+
+def get_account_number(manga_title: str) -> int:
+    """manga_titleの末尾丸数字からアカウント番号を返す。
+    ①②③→1、④⑤⑥→2、⑦⑧⑨→3（3バリエーション/アカウント）"""
+    m = re.search(r'[①②③④⑤⑥⑦⑧⑨⑩]$', manga_title)
+    if m:
+        idx = '①②③④⑤⑥⑦⑧⑨⑩'.index(m.group(0))
+        return (idx // 3) + 1
+    return 1
 
 
 def pick_se():
@@ -649,8 +663,11 @@ def setup_mode(task_id: str = "", design_id_override: str = ""):
         log(f"  ✅ 音声生成完了 → {audio_dir}")
 
         # ── イントロ / アウトロ音声生成（女性ボイス固定）──────────────
-        base_title = re.sub(r'[①②③④⑤⑥⑦⑧⑨⑩]+$', '', manga_title).strip()
-        intro_text = f"秒で出しちゃった{base_title}男の漫画"
+        base_title   = re.sub(r'[①②③④⑤⑥⑦⑧⑨⑩]+$', '', manga_title).strip()
+        account      = get_account_number(manga_title)
+        intro_suffix = ACCOUNT_CONFIG.get(account, ACCOUNT_CONFIG[1])["intro_suffix"]
+        BGM_PATH     = ACCOUNT_CONFIG.get(account, ACCOUNT_CONFIG[1])["bgm"]
+        intro_text   = f"秒で出しちゃった{base_title}{intro_suffix}"
         outro_text = "続きは動画の概要欄かコメント欄"
 
         intro_wav_path = audio_dir / "intro.wav"
@@ -673,7 +690,10 @@ def setup_mode(task_id: str = "", design_id_override: str = ""):
         canva_pages_dir.mkdir(parents=True, exist_ok=True)
 
         # ── 出力パス ─────────────────────────────────────────────────────
-        output_path = MEDIA_BASE / f"{manga_title}_完成.mp4"
+        # ~/Library配下に保存（launchdからアクセス可能・TCC制限回避）
+        videos_dir  = Path.home() / "Library" / "ai-brain" / "videos"
+        videos_dir.mkdir(parents=True, exist_ok=True)
+        output_path = videos_dir / f"{manga_title}_完成.mp4"
 
         # ── video_job.json 保存 ─────────────────────────────────────────
         job = {
