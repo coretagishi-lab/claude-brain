@@ -10,6 +10,32 @@
 cp Projects/dmm-manga-affiliate/Knowledge/experience.md ~/Library/ai-brain/experience.md
 ```
 
+## ⛔ Monitor は毎セッション必ず起動すること（PC再起動後も含む）
+
+セッション開始後、**他の何よりも先に**以下のMonitorをpersistent=trueで起動する。
+これはPC再起動・セッション終了後の再接続・どんな状況でも例外なく実行する。
+
+```
+Monitor ツール（persistent=true）で以下を実行:
+while true; do
+  result=$(python3 /Users/tagishitakuya/Desktop/ClaudeProjects/AI-Brain/Shared/Workflows/vps-task-checker.py 2>/dev/null)
+  if ! echo "$result" | grep -q "VPS待機タスクなし"; then
+    echo "🔔 VPSタスク検知: $result"
+  fi
+  pending=$(python3 /Users/tagishitakuya/Desktop/ClaudeProjects/AI-Brain/Projects/dmm-manga-affiliate/Workflows/youtube-uploader.py --check-pending 2>&1)
+  if [ -n "$pending" ]; then
+    echo "🔔 pending: $pending"
+  fi
+  sleep 30
+done
+```
+
+**なぜ必須か:**
+- tagishiがNotionで承認 → VPSが30秒以内にOutboxにタスクを積む
+- MonitorなしだとそのタスクはClaudeが気づかずに放置される
+- セッションを開くたびに必ず起動することで、承認後30秒以内に自動処理が走る
+- これが動いていないと「ターミナルで言わないといけない問題」が再発する
+
 ---
 
 ## ⛔ セッション開始直後の即実行ルール（dmm-manga-affiliate）
