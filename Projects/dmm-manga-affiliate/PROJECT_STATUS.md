@@ -15,6 +15,7 @@ updated_at: 2026-06-23
 - 次の素材をDiscordに投稿して6バリエーション全自動フローを通しテストする
 - ②③⑤⑥のYouTube投稿はlaunchd upload-schedulerが自動実行（6/27・7/4）
 - 毎朝9:00にanalytics.pyがDiscordにレポート送信（明日から稼働）
+- タスクボード新ステータス稼働中: 作成完了 / 投稿待ち / 投稿済
 
 ## blocker
 - なし（Monitor稼働中・launchd台本生成・upload-scheduler自動アップロード稼働中）
