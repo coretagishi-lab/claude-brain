@@ -163,7 +163,16 @@ def register_to_calendar(manga_title: str, youtube_url: str, x_url: str,
     """既存カレンダーエントリを更新、なければ作成する"""
     status = "予約済み" if publish_at else "公開済み"
     date_str = publish_at or datetime.now().strftime("%Y-%m-%dT%H:%M:%S+09:00")
-    title = manga_title  # シンプルに漫画タイトルそのまま（例: 幼馴染との①）
+    # アカウント内の何本目か（④→①、⑤→②、⑥→③）に変換して表示
+    _circles = "①②③④⑤⑥⑦⑧⑨⑩"
+    _m = re.search(r'[①②③④⑤⑥⑦⑧⑨⑩]$', manga_title)
+    if _m:
+        _global_idx = _circles.index(_m.group(0))
+        _rel_circle = _circles[_global_idx % 3]
+        _base = re.sub(r'[①②③④⑤⑥⑦⑧⑨⑩]+$', '', manga_title).strip()
+        title = f"{_base}{_rel_circle}"
+    else:
+        title = manga_title
 
     existing_id = find_calendar_entry(manga_title)
     if existing_id:
