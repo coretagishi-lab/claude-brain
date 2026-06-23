@@ -5,6 +5,7 @@ priority: high
 due_date: ""
 review_waiting: false
 updated_at: 2026-06-23
+
 ---
 
 ## current_goal
@@ -13,6 +14,7 @@ updated_at: 2026-06-23
 ## next_action
 - 次の素材をDiscordに投稿して6バリエーション全自動フローを通しテストする
 - ②③⑤⑥のYouTube投稿はlaunchd upload-schedulerが自動実行（6/27・7/4）
+- 毎朝9:00にanalytics.pyがDiscordにレポート送信（明日から稼働）
 
 ## blocker
 - なし（Monitor稼働中・launchd台本生成・upload-scheduler自動アップロード稼働中）
