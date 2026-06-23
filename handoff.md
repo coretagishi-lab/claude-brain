@@ -33,9 +33,10 @@ updated: 2026-06-19
 
 ```python
 # Monitor ツールで以下を persistent=true で実行
+# ※ youtube投稿待ちはupload-schedulerが自動処理するためスキップ（通知スパム防止）
 while true; do
   result=$(python3 /Users/tagishitakuya/Desktop/ClaudeProjects/AI-Brain/Shared/Workflows/vps-task-checker.py 2>/dev/null)
-  if ! echo "$result" | grep -q "VPS待機タスクなし"; then
+  if echo "$result" | grep -qE "assembler実行待ち|ffmpeg動画生成待ち|動画やり直し待ち"; then
     echo "🔔 VPSタスク検知: $result"
   fi
   pending=$(python3 /Users/tagishitakuya/Desktop/ClaudeProjects/AI-Brain/Projects/dmm-manga-affiliate/Workflows/youtube-uploader.py --check-pending 2>&1)
