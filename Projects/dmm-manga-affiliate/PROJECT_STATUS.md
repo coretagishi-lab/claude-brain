@@ -4,22 +4,26 @@ current_status: active
 priority: high
 due_date: ""
 review_waiting: false
-updated_at: 2026-06-19
+updated_at: 2026-06-23
 ---
 
 ## current_goal
-- 1素材→2バリエーション×1アカウントで全工程自動化パイプラインを完成・安定稼働させる
+- 1素材→6バリエーション×2アカウントで全工程自動化パイプラインを安定稼働させる
 
 ## next_action
-- 次の素材をDiscordに投稿して台本生成→Canva→動画→YouTube投稿の全フローをテストする
-- assembler.pyのバグ修正済み（2026-06-19）なので次回のassembler実行で確認
+- 次の素材をDiscordに投稿して6バリエーション全自動フローを通しテストする
+- ②③⑤⑥のYouTube投稿はlaunchd upload-schedulerが自動実行（6/27・7/4）
 
 ## blocker
-- なし（セッション中はMonitorで30秒おきに全工程自動検知・実行可能）
+- なし（Monitor稼働中・launchd台本生成・upload-scheduler自動アップロード稼働中）
 
 ## latest_output
 
-| type | name | path | url | updated_at |
-|---|---|---|---|---|
-| mp4 | フレンドとの①_完成.mp4 | 漫画アフィリエイト:動画素材/ | https://youtube.com/shorts/2x1EHyACH78 | 2026-06-18 |
-| mp4 | フレンドとの②_完成.mp4 | 漫画アフィリエイト:動画素材/ | https://youtube.com/shorts/W7LLnwcsJHs | 2026-06-18 |
+| type | name | url | updated_at |
+|---|---|---|---|
+| mp4 | 幼馴染との①（account①） | https://youtube.com/shorts/CfSwDnRgHqw | 2026-06-23 |
+| mp4 | 幼馴染との②（account①） | 予約済み 2026-06-30 | 2026-06-23 |
+| mp4 | 幼馴染との③（account①） | 予約済み 2026-07-07 | 2026-06-23 |
+| mp4 | 幼馴染との④（account②） | https://youtube.com/shorts/FIek0mK4tIU | 2026-06-23 |
+| mp4 | 幼馴染との⑤（account②） | 予約済み 2026-06-30 | 2026-06-23 |
+| mp4 | 幼馴染との⑥（account②） | 予約済み 2026-07-07 | 2026-06-23 |
