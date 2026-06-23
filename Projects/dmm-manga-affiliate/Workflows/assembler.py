@@ -250,6 +250,30 @@ def update_to_canva_ready(page_id: str, canva_url: str, design_id: str, dry: boo
     notion("PATCH", f"/blocks/{page_id}/children", {"children": blocks})
 
 
+def update_task_board_status(page_id: str, task_prefix: str, new_status: str, dry: bool = False):
+    """タスクボードの[台本確認]等エントリをステータス更新（page_idで特定）"""
+    if dry:
+        log(f"  [DRY] タスクボード更新スキップ: {task_prefix} → {new_status}")
+        return
+    raw_id = page_id.replace("-", "")
+    _, res = notion("POST", f"/databases/{NOTION_TASK_BOARD_ID}/query", {
+        "filter": {
+            "and": [
+                {"property": "タスク名",   "title":     {"contains": task_prefix}},
+                {"property": "内容要約",   "rich_text": {"contains": raw_id}},
+            ]
+        },
+        "page_size": 1,
+    })
+    for item in res.get("results", []):
+        notion("PATCH", f"/pages/{item['id']}", {
+            "properties": {"ステータス": {"select": {"name": new_status}}}
+        })
+        log(f"  ✅ タスクボード更新: {task_prefix} → {new_status}")
+        return
+    log(f"  ⚠️  タスクボードエントリ未検出: {task_prefix} (page_id:{raw_id[:8]}...)")
+
+
 def register_to_task_board(manga_title: str, canva_url: str, notion_url: str, dry: bool = False):
     if dry:
         log(f"  [DRY] タスクボード登録スキップ")
@@ -566,6 +590,8 @@ def finalize_canva(state_file: Path, design_id: str, canva_url: str, dry: bool =
     notion_url = f"https://app.notion.com/p/{page_id.replace('-', '')}"
     update_to_canva_ready(page_id, canva_url, design_id, dry=dry)
     log("  ✅ Notion: approved → canva_ready")
+
+    update_task_board_status(page_id, "[台本確認]", "作成完了", dry=dry)
 
     register_to_task_board(manga_title, canva_url, notion_url, dry=dry)
     log("  ✅ タスク確認ボード登録完了")

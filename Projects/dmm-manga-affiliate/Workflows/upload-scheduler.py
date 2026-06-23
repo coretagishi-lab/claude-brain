@@ -102,6 +102,25 @@ def get_content_page(page_id: str) -> dict:
     }
 
 
+TASK_BOARD_ID = "3671cad4aa98813b85b2ed9e3127b913"
+
+def update_review_task_status(manga_title: str, new_status: str):
+    """タスクボードの[動画確認]エントリをステータス更新"""
+    _, res = notion("POST", f"/databases/{TASK_BOARD_ID}/query", {
+        "filter": {"property": "タスク名", "title": {"contains": "[動画確認]"}},
+        "page_size": 20,
+    })
+    for item in res.get("results", []):
+        name = "".join(p.get("plain_text", "") for p in item["properties"]["タスク名"]["title"])
+        if manga_title in name:
+            notion("PATCH", f"/pages/{item['id']}", {
+                "properties": {"ステータス": {"select": {"name": new_status}}}
+            })
+            log(f"  ✅ タスクボード更新: [動画確認] {manga_title} → {new_status}")
+            return
+    log(f"  ⚠️  タスクボードエントリ未検出: [動画確認] {manga_title}")
+
+
 def mark_task_done(task_id: str, resolution: str):
     notion("PATCH", f"/pages/{task_id}", {
         "properties": {"status": {"select": {"name": "completed"}}}
@@ -163,6 +182,9 @@ def main():
 
         log(f"  漫画: {manga_title} / 公開予定: {publish_at or '未設定'}")
 
+        # 投稿待ちステータスに更新（アップロード前も含め全件）
+        update_review_task_status(manga_title, "投稿待ち")
+
         if not should_upload_now(publish_at):
             pub_dt    = datetime.fromisoformat(publish_at)
             upload_dt = pub_dt - timedelta(days=UPLOAD_DAYS_BEFORE)
@@ -187,6 +209,7 @@ def main():
         if result.returncode == 0:
             log(f"  ✅ アップロード完了")
             log(result.stdout[-500:] if result.stdout else "")
+            update_review_task_status(manga_title, "投稿済")
             mark_task_done(task_id, f"upload-scheduler が自動アップロード完了\n動画: {video_path.name}")
         else:
             log(f"  ❌ アップロード失敗 (exit {result.returncode})")

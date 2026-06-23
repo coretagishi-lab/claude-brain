@@ -200,6 +200,23 @@ def mark_vps_task_done(task_id: str, resolution: str):
     }]})
 
 
+def update_task_board_by_title(task_prefix: str, manga_title: str, new_status: str):
+    """タスク名でタスクボードエントリを検索してステータス更新"""
+    _, res = notion("POST", f"/databases/{NOTION_TASK_BOARD_ID}/query", {
+        "filter": {"property": "タスク名", "title": {"contains": task_prefix}},
+        "page_size": 20,
+    })
+    for item in res.get("results", []):
+        name = "".join(p.get("plain_text", "") for p in item["properties"]["タスク名"]["title"])
+        if manga_title in name:
+            notion("PATCH", f"/pages/{item['id']}", {
+                "properties": {"ステータス": {"select": {"name": new_status}}}
+            })
+            log(f"  ✅ タスクボード更新: {task_prefix} [{manga_title}] → {new_status}")
+            return
+    log(f"  ⚠️  タスクボードエントリ未検出: {task_prefix} [{manga_title}]")
+
+
 def register_review_task(manga_title: str, video_path: str, catbox_url: str, page_id: str):
     """タスク確認ボードに [動画確認] タスクを登録"""
     notion_url = f"https://app.notion.com/p/{page_id.replace('-', '')}" if page_id else ""
@@ -659,6 +676,8 @@ def setup_mode(task_id: str = "", design_id_override: str = ""):
         date_str   = datetime.now().strftime("%Y%m%d")
         audio_dir  = AUDIO_BASE / f"{date_str}_{safe_title}_video"
 
+        update_task_board_by_title("[Canva確認]", manga_title, "🔄 作成中")
+
         log(f"  🎙 VOICEVOX 音声生成中...")
         durations = generate_all_voices(manga_title, telops, audio_dir)
         log(f"  ✅ 音声生成完了 → {audio_dir}")
@@ -799,6 +818,7 @@ def assemble_mode(job_file: Path):
     # Notion 更新
     log("📝 Notion 更新中...")
     update_notion_status(page_id, catbox_url or str(output_path))
+    update_task_board_by_title("[Canva確認]", manga_title, "作成完了")
     register_review_task(manga_title, str(output_path), catbox_url, page_id)
     log("  ✅ [動画確認] タスク登録完了")
 
