@@ -103,6 +103,42 @@ def get_content_page(page_id: str) -> dict:
 
 
 TASK_BOARD_ID = "3671cad4aa98813b85b2ed9e3127b913"
+CAL_DB_ID     = "3831cad4-aa98-81c2-9c66-e7f9ee3597e9"
+
+ACCOUNT_MAP = {
+    "①": "アカウント①", "②": "アカウント①", "③": "アカウント①",
+    "④": "アカウント②", "⑤": "アカウント②", "⑥": "アカウント②",
+}
+
+def ensure_calendar_entry(manga_title: str, publish_at: str):
+    """カレンダーに未登録なら予約済みで事前登録する"""
+    if not publish_at:
+        return
+    # 既存エントリ確認
+    _, res = notion("POST", f"/databases/{CAL_DB_ID}/query", {
+        "filter": {"property": "漫画タイトル", "rich_text": {"equals": manga_title}},
+        "page_size": 1,
+    })
+    if res.get("results"):
+        return  # 既登録
+    # アカウント判定（末尾の丸数字で判定）
+    last_char = manga_title[-1] if manga_title else ""
+    acct = ACCOUNT_MAP.get(last_char, "アカウント①")
+    _, create_res = notion("POST", "/pages", {
+        "parent": {"database_id": CAL_DB_ID},
+        "properties": {
+            "動画タイトル": {"title":     [{"text": {"content": manga_title}}]},
+            "漫画タイトル": {"rich_text": [{"text": {"content": manga_title}}]},
+            "アカウント":   {"select":    {"name": acct}},
+            "公開日時":     {"date":      {"start": publish_at}},
+            "ステータス":   {"select":    {"name": "予約済み"}},
+        }
+    })
+    if create_res.get("id"):
+        log(f"  📅 カレンダー事前登録: {manga_title} ({acct}) → {publish_at[:10]}")
+    else:
+        log(f"  ⚠️  カレンダー登録失敗: {manga_title}")
+
 
 def update_review_task_status(manga_title: str, new_status: str):
     """タスクボードの[動画確認]エントリをステータス更新"""
@@ -184,6 +220,9 @@ def main():
 
         # 投稿待ちステータスに更新（アップロード前も含め全件）
         update_review_task_status(manga_title, "投稿待ち")
+
+        # カレンダーに未登録なら「予約済み」で事前登録
+        ensure_calendar_entry(manga_title, publish_at)
 
         if not should_upload_now(publish_at):
             pub_dt    = datetime.fromisoformat(publish_at)

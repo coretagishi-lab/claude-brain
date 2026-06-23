@@ -15,19 +15,42 @@ cp Projects/dmm-manga-affiliate/Knowledge/experience.md ~/Library/ai-brain/exper
 セッション開始後、**他の何よりも先に**以下のMonitorをpersistent=trueで起動する。
 これはPC再起動・セッション終了後の再接続・どんな状況でも例外なく実行する。
 
-```
-Monitor ツール（persistent=true）で以下を実行:
-# youtube投稿待ちはupload-schedulerが自動処理するためスキップ（スパム防止）
+```bash
+# Monitor ツール（persistent=true）で以下を実行（差分検知型）
+prev_action_tasks=""
+prev_youtube_tasks=""
+prev_pending=""
 while true; do
   result=$(python3 /Users/tagishitakuya/Desktop/ClaudeProjects/AI-Brain/Shared/Workflows/vps-task-checker.py 2>/dev/null)
-  if echo "$result" | grep -qE "assembler実行待ち|ffmpeg動画生成待ち|動画やり直し待ち"; then
-    echo "🔔 VPSタスク検知: $result"
+
+  # assembler/ffmpeg/やり直し: 変化時のみ通知
+  current_action=$(echo "$result" | grep -E "assembler実行待ち|ffmpeg動画生成待ち|動画やり直し待ち" | sort)
+  if [ "$current_action" != "$prev_action_tasks" ]; then
+    if [ -n "$current_action" ]; then
+      echo "🔔 要処理タスク: $current_action"
+    elif [ -n "$prev_action_tasks" ]; then
+      echo "✅ assembler/ffmpeg/やり直しタスク全解消"
+    fi
+    prev_action_tasks="$current_action"
   fi
+
+  # youtube投稿待ち: 新規検知→upload-scheduler自動実行
+  current_youtube=$(echo "$result" | grep "youtube投稿待ち" | sort)
+  if [ "$current_youtube" != "$prev_youtube_tasks" ] && [ -n "$current_youtube" ]; then
+    echo "📤 youtube投稿待ち変化検知 → upload-scheduler実行"
+    python3 /Users/tagishitakuya/Desktop/ClaudeProjects/AI-Brain/Projects/dmm-manga-affiliate/Workflows/upload-scheduler.py 2>&1 | grep -E "✅|❌|📤|⏳|漫画:|📅" | head -30
+    echo "upload-scheduler完了"
+    prev_youtube_tasks="$current_youtube"
+  fi
+
+  # pending_comments: 変化時のみ通知
   pending=$(python3 /Users/tagishitakuya/Desktop/ClaudeProjects/AI-Brain/Projects/dmm-manga-affiliate/Workflows/youtube-uploader.py --check-pending 2>&1)
-  if [ -n "$pending" ]; then
-    echo "🔔 pending: $pending"
+  if [ "$pending" != "$prev_pending" ] && [ -n "$pending" ]; then
+    echo "🔔 pending変化: $pending"
+    prev_pending="$pending"
   fi
-  sleep 30
+
+  sleep 60
 done
 ```
 
