@@ -82,8 +82,9 @@ version: 1.1
 ⑬ youtube-uploader.py を実行
    → YouTube Shortsに即公開で投稿（Notionで動画確認済みのため）
    → サムネイルを page1.png（Canvaの1枚目）に自動設定
-   → 概要欄に XのURL を追記
-   → コメントは投稿直後に投稿（x_url付き）
+   → タイトル: 「続きは概要欄 or コメント欄【漫画タイトル】」（①②なし・全アカウント共通）
+   → 概要欄: 「続きはリンクを"長押しでコピー"👇\n指定URL\n\n#漫画 #マンガ #Shorts #漫画紹介 #おすすめ漫画」
+   → コメント: 「続きはこちら\n指定URL」（投稿直後 or 公開後に自動投稿）
    ※ 予約投稿: Notionの publish_at を読んで自動で scheduledPublishTime をセット（実装済み）
 ```
 

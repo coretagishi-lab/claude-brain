@@ -411,9 +411,8 @@ def update_description(video_id: str, title: str, x_url: str, account: int = 1):
 
     snippet = current["items"][0]["snippet"]
     snippet["description"] = (
-        f"【{title}】の続きはこちら👇\n"
+        f"続きはリンクを\"長押しでコピー\"👇\n"
         f"{x_url}\n\n"
-        f"気になった方はXの投稿からアフィリエイトリンクへ！\n\n"
         f"#漫画 #マンガ #Shorts #漫画紹介 #おすすめ漫画"
     )
 
@@ -439,7 +438,7 @@ def post_comment(video_id: str, x_url: str, account: int = 1):
             "videoId": video_id,
             "topLevelComment": {
                 "snippet": {
-                    "textOriginal": f"続きはこちら⬇️\n{x_url}"
+                    "textOriginal": f"続きはこちら\n{x_url}"
                 }
             }
         }
@@ -583,7 +582,7 @@ def main():
             account = get_account_number(manga_title)
         if not title:
             clean_manga = re.sub(r'[①②③④⑤⑥⑦⑧⑨⑩]+$', '', manga_title).strip()
-            title = f"続きはコメ欄⬇️【{clean_manga}】 #漫画 #Shorts" if clean_manga else ""
+            title = f"続きは概要欄 or コメント欄【{clean_manga}】" if clean_manga else ""
         description = description or (props.get("description") or "") + "\n" + (props.get("affiliate_url") or "")
 
     if not video_path or not video_path.exists():
@@ -591,7 +590,7 @@ def main():
         sys.exit(1)
     if not title:
         # タイトル未指定の場合はデフォルト
-        title = "続きはコメ欄⬇️ #漫画 #Shorts"
+        title = "続きは概要欄 or コメント欄"
 
     # Notionからpublish_atを取得
     publish_at = None
