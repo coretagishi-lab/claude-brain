@@ -55,6 +55,7 @@ VOICEVOX_SPEAKER_MALE   = 13  # 青山龍星 ノーマル
 
 MEDIA_BASE = Path("/Users/tagishitakuya/Desktop/ClaudeProjects/漫画アフィリエイト:動画素材")
 SE_DIR     = MEDIA_BASE / "効果音"
+BGM_PATH   = MEDIA_BASE / "アカウント①BGM.mp3"  # デフォルト（assemble_modeがjobから上書き）
 
 # ── アカウント別設定（manga_titleの末尾丸数字で自動判定） ──────────────────
 ACCOUNT_CONFIG = {
@@ -751,11 +752,14 @@ def assemble_mode(job_file: Path):
         log(f"❌ job-file が見つかりません: {job_file}")
         sys.exit(1)
 
+    global BGM_PATH
     job = json.loads(job_file.read_text())
     manga_title = job["manga_title"]
     page_id     = job["page_id"]
     vps_task_id = job["vps_task_id"]
     output_path = Path(job["output_path"])
+    if job.get("bgm_path"):
+        BGM_PATH = Path(job["bgm_path"])
 
     if not NOTION_TOKEN:
         log("❌ 環境変数 NOTION_TOKEN が未設定です")

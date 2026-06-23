@@ -427,7 +427,17 @@ page10カバー: PBQRTjML4Gm5msr7-LBB8BKH3dpcWzwx8  ← 必ず差し替える（
 | YouTubeチャンネル | `UC761wKgnWTX1bLXTcq1Jqsg` |
 | token保存先 | `~/.config/dmm-youtube/account2/token.json` |
 
-> ⚠️ イントロセリフの差異（男の漫画 vs 叡智な漫画）は video-generator.py がアカウント番号を受け取って切り替える必要がある。design_idとアカウント情報が揃ったタイミングで実装する。
+### ⚠️ アカウント②のpage1制限【重要】
+
+Canva MCP（start-editing-transaction）でアカウント②テンプレのコピーを開くと、**page1が `is_empty: true` として返却され、テキスト要素・画像スロットとも編集不可**。
+
+| 影響 | 対応 |
+|---|---|
+| page1タイトル（漫画タイトル）が差し替えられない | tagishiがCanvaで手動入力 |
+| page1カバー画像が差し替えられない | tagishiがCanvaで手動差し替え |
+| VOICEVOX読み上げ（イントロ音声）への影響 | なし（video-generator.pyはNotionのmanga_titleから独立して計算） |
+
+→ page2〜10（テロップ・画像・page10カバー）の編集は正常に動作する。
 
 ---
 

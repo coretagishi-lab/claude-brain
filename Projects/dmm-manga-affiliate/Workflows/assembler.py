@@ -642,13 +642,21 @@ def process_page(props: dict, dry: bool = False) -> bool:
 
     state_file = save_canva_job(props, image_urls, telops)
     log(f"  📋 Canvaジョブ保存: {state_file}")
+    design_title = json.loads(state_file.read_text()).get("canva_design_title", "")
     print(f"\nCANVA_JOB_FILE={state_file}", flush=True)
-    print(f"  canva_design_title: {canva_design_title}", flush=True)
+    print(f"  canva_design_title: {design_title}", flush=True)
     print("  ↑ このファイルを Claude Code セッションに渡して:", flush=True)
+    account = json.loads(state_file.read_text()).get("account", 1)
     print("    1. copy-design 後に update_title でファイル名を canva_design_title に設定", flush=True)
-    print("    2. image_urls の各画像を確認し telops との対応を決定（image_assignments）", flush=True)
-    print("    3. 各スロットに upload-asset-from-url → update_fill のみ", flush=True)
-    print("    4. 各テロップスロットに replace_text 後、format_text で color のみ変更", flush=True)
+    if account == 1:
+        print("    2. page1タイトル（title_line_from_top=3番目）を canva_title に replace_text", flush=True)
+        print("    3. page1カバー（page1_cover_slot_id）に upload-asset-from-url → update_fill", flush=True)
+    else:
+        print(f"    2. ⚠️ account{account}: page1はMCP編集不可（is_empty:true）→ page1タイトル・カバー画像はtagishiが手動で設定", flush=True)
+    print("    4. image_urls の各画像を確認し telops との対応を決定（image_assignments）", flush=True)
+    print("    5. 各スロットに upload-asset-from-url → update_fill のみ", flush=True)
+    print("    6. 各テロップスロットに replace_text 後、format_text で color のみ変更", flush=True)
+    print(f"       element_idは必ずcanva_job.jsonのtelop_elem_idsから取得する（手打ち禁止）", flush=True)
     print(f"       ♂={TELOP_COLOR_MALE} / ♀={TELOP_COLOR_FEMALE}（袋文字エフェクトは触らない）", flush=True)
     return state_file
 
