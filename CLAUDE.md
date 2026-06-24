@@ -16,38 +16,35 @@ cp Projects/dmm-manga-affiliate/Knowledge/experience.md ~/Library/ai-brain/exper
 これはPC再起動・セッション終了後の再接続・どんな状況でも例外なく実行する。
 
 ```bash
-# Monitor ツール（persistent=true）で以下を実行（差分検知型）
-prev_action_tasks=""
-prev_youtube_tasks=""
-prev_pending=""
+# Monitor ツール（persistent=true）で以下を実行（最小出力・コンテキスト節約版）
+prev_action=""
+prev_youtube_count=0
+prev_pending_ok=""
 while true; do
   result=$(python3 /Users/tagishitakuya/Desktop/ClaudeProjects/AI-Brain/Shared/Workflows/vps-task-checker.py 2>/dev/null)
 
-  # assembler/ffmpeg/やり直し: 変化時のみ通知
-  current_action=$(echo "$result" | grep -E "assembler実行待ち|ffmpeg動画生成待ち|動画やり直し待ち" | sort)
-  if [ "$current_action" != "$prev_action_tasks" ]; then
-    if [ -n "$current_action" ]; then
-      echo "🔔 要処理タスク: $current_action"
-    elif [ -n "$prev_action_tasks" ]; then
-      echo "✅ assembler/ffmpeg/やり直しタスク全解消"
-    fi
-    prev_action_tasks="$current_action"
+  # assembler/ffmpeg/やり直し: 変化時のみ1行通知
+  current_action=$(echo "$result" | grep -oE "(assembler実行待ち|ffmpeg動画生成待ち|動画やり直し待ち): [^|]+" | head -3 | tr '\n' ' ')
+  if [ "$current_action" != "$prev_action" ]; then
+    [ -n "$current_action" ] && echo "🔔 要処理: $current_action"
+    [ -z "$current_action" ] && [ -n "$prev_action" ] && echo "✅ 処理タスク全解消"
+    prev_action="$current_action"
   fi
 
-  # youtube投稿待ち: 新規検知→upload-scheduler自動実行
-  current_youtube=$(echo "$result" | grep "youtube投稿待ち" | sort)
-  if [ "$current_youtube" != "$prev_youtube_tasks" ] && [ -n "$current_youtube" ]; then
-    echo "📤 youtube投稿待ち変化検知 → upload-scheduler実行"
-    python3 /Users/tagishitakuya/Desktop/ClaudeProjects/AI-Brain/Projects/dmm-manga-affiliate/Workflows/upload-scheduler.py 2>&1 | grep -E "✅|❌|📤|⏳|漫画:|📅" | head -30
-    echo "upload-scheduler完了"
-    prev_youtube_tasks="$current_youtube"
+  # youtube投稿待ち: 件数増加時のみupload-scheduler実行（実投稿時のみ1行表示）
+  current_count=$(echo "$result" | grep -c "youtube投稿待ち" 2>/dev/null || echo 0)
+  if [ "$current_count" -gt "$prev_youtube_count" ] 2>/dev/null; then
+    out=$(python3 /Users/tagishitakuya/Desktop/ClaudeProjects/AI-Brain/Projects/dmm-manga-affiliate/Workflows/upload-scheduler.py 2>/dev/null)
+    n=$(echo "$out" | grep -c "アップロード開始" || echo 0)
+    [ "$n" -gt 0 ] && echo "📤 自動投稿 ${n}件: $(echo "$out" | grep 'アップロード開始' | sed 's/.*開始: //' | tr '\n' ' ')"
+    prev_youtube_count=$current_count
   fi
 
-  # pending_comments: 変化時のみ通知
-  pending=$(python3 /Users/tagishitakuya/Desktop/ClaudeProjects/AI-Brain/Projects/dmm-manga-affiliate/Workflows/youtube-uploader.py --check-pending 2>&1)
-  if [ "$pending" != "$prev_pending" ] && [ -n "$pending" ]; then
-    echo "🔔 pending変化: $pending"
-    prev_pending="$pending"
+  # pending: 成功時のみ1行（エラーは完全無視）
+  pending_out=$(python3 /Users/tagishitakuya/Desktop/ClaudeProjects/AI-Brain/Projects/dmm-manga-affiliate/Workflows/youtube-uploader.py --check-pending 2>/dev/null)
+  if echo "$pending_out" | grep -q "コメント\|公開検知" 2>/dev/null; then
+    ok=$(echo "$pending_out" | grep -E "コメント|公開検知" | head -2)
+    [ "$ok" != "$prev_pending_ok" ] && echo "💬 $ok" && prev_pending_ok="$ok"
   fi
 
   sleep 60
