@@ -278,6 +278,14 @@ def register_to_task_board(manga_title: str, canva_url: str, notion_url: str, dr
     if dry:
         log(f"  [DRY] タスクボード登録スキップ")
         return
+    # 既存タスクチェック（重複登録防止）
+    _, existing = notion("POST", f"/databases/{NOTION_TASK_BOARD_ID}/query", {
+        "filter": {"property": "タスク名", "title": {"equals": f"[Canva確認] {manga_title}"}},
+        "page_size": 1,
+    })
+    if existing.get("results"):
+        log(f"  ⚠️  タスクボード既存エントリあり → スキップ: [Canva確認] {manga_title}")
+        return
     notion("POST", "/pages", {
         "parent": {"database_id": NOTION_TASK_BOARD_ID},
         "properties": {
