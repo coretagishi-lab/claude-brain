@@ -471,7 +471,7 @@ PENDING_FILE = Path.home() / ".config" / "dmm-youtube" / "pending_comments.json"
 
 
 def save_pending_comment(video_id: str, x_url: str, title: str, manga_title: str = "", account: int = 1):
-    """公開待ちコメントをpendingリストに保存"""
+    """公開待ちコメントをpendingリストに保存 → VPSへ自動sync"""
     PENDING_FILE.parent.mkdir(parents=True, exist_ok=True)
     pending = json.loads(PENDING_FILE.read_text()) if PENDING_FILE.exists() else []
     pending.append({
@@ -483,6 +483,16 @@ def save_pending_comment(video_id: str, x_url: str, title: str, manga_title: str
         "added_at":    datetime.now().isoformat(),
     })
     PENDING_FILE.write_text(json.dumps(pending, ensure_ascii=False, indent=2))
+    # VPSへ同期（PCがオフのときもVPSがコメント投稿できるようにする）
+    import subprocess
+    try:
+        subprocess.run([
+            "scp", "-i", str(Path.home() / ".ssh/conoha_vps"), "-q",
+            str(PENDING_FILE),
+            "root@133.88.117.175:/opt/ai-brain/.credentials/pending_comments.json"
+        ], timeout=10)
+    except Exception:
+        pass  # sync失敗してもローカル保存は完了しているので続行
 
 
 def get_video_privacy(video_id: str, account: int = 1) -> str:

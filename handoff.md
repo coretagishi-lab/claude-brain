@@ -75,17 +75,21 @@ Monitorが `💬` を通知したらコメント投稿完了。
 ## 2. pending_comments.json を即確認（セッション開始直後に必ず）
 
 ```bash
-cat ~/.config/dmm-youtube/pending_comments.json
-```
-
-**エントリがあれば即実行:**
-```bash
 python3 /Users/tagishitakuya/Desktop/ClaudeProjects/AI-Brain/Projects/dmm-manga-affiliate/Workflows/youtube-uploader.py --check-pending
 ```
 
-**なぜ重要か**: セッション終了でMonitorが死ぬ → 予約動画が公開されてもcheck-pendingが走らない → コメント未投稿になる。
-2026-06-19に実際に発生した（フレンドとの①が21:24公開後、セッション終了済みで誰も検知しなかった）。
-セッション開始時に即チェックすることで取りこぼしゼロになる。
+**【2026-06-30 更新】VPS が3分ごとにコメント自動投稿するようになった**
+- VPS `ai-brain-comment-poster.timer`（3分ごと）が pending_comments.json をチェック
+- Mac でアップロード → pending 保存と同時に VPS へ自動 scp sync
+- **PCがオフでも公開後3分以内にコメントが自動投稿される**
+- セッション開始時の --check-pending は「VPS がまだ処理していない取りこぼし」の救済
+
+**VPS コメント投稿の仕組み:**
+- スクリプト: `/opt/ai-brain/Projects/dmm-manga-affiliate/Workflows/vps-comment-poster.py`
+- token: `/opt/ai-brain/.credentials/yt-tokens/account{1,2}/token.json`
+- pending: `/opt/ai-brain/.credentials/pending_comments.json`
+- コメント内容: `「続きはこちら\n{x_url}」`（youtube-uploader.py と完全一致）
+- ログ: `/var/log/ai-brain-comment.log`
 
 ## 3. ライブログを読む（直前セッションの全記録）
 ```bash
@@ -123,7 +127,7 @@ ConoHa VPS 133.88.117.175（実行・APIゼロ）
 
 ---
 
-# 自動化の現状（2026-06-18 確定）
+# 自動化の現状（2026-06-30 更新）
 
 | ステップ | 自動化 | トリガー |
 |---|---|---|
@@ -131,8 +135,8 @@ ConoHa VPS 133.88.117.175（実行・APIゼロ）
 | 台本確認済み → catbox + canva_job.json | ✅ 常時（PC不要） | launchd ai_brain_daemon.py |
 | Canva MCP（テロップ・画像差し替え） | ⚠️ セッション中のみ | assembler.py + Canva MCP |
 | ffmpeg動画生成 | ⚠️ セッション中のみ | video-generator.py |
-| YouTube投稿（2本/日・2時間間隔） | ⚠️ セッション中のみ | CronCreate経由 |
-| 公開後コメント投稿 | ⚠️ セッション中のみ | CronCreate --check-pending |
+| YouTube投稿（公開3日前・2本/日） | ✅ 常時（PC不要） | VPS upload-scheduler → youtube-uploader.py |
+| 公開後コメント投稿 | ✅ 常時（PC不要） | VPS ai-brain-comment-poster.timer（3分ごと） |
 
 ### TCC制限（macOS 15 Sequoia）
 - launchd は ~/Desktop にアクセス不可
