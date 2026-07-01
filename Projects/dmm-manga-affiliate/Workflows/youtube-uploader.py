@@ -546,6 +546,16 @@ def check_and_post_pending():
             remaining.append(item)  # まだ非公開 → 残す
 
     PENDING_FILE.write_text(json.dumps(remaining, ensure_ascii=False, indent=2))
+    # 投稿済み削除をVPSにも反映（重複コメント防止）
+    import subprocess
+    try:
+        subprocess.run([
+            "scp", "-i", str(Path.home() / ".ssh/conoha_vps"), "-q",
+            str(PENDING_FILE),
+            "root@133.88.117.175:/opt/ai-brain/.credentials/pending_comments.json"
+        ], timeout=10)
+    except Exception:
+        pass
 
 
 # ── メイン ────────────────────────────────────────────────────────────────────
