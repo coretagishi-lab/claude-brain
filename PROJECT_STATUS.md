@@ -14,7 +14,8 @@ vault_version: 4.1
 
 | project_name | current_status | priority | review_waiting | due_date | updated_at |
 |---|---|---|---|---|---|
-| dmm-manga-affiliate | active | high | false | — | 2026-06-03 |
+| dmm-manga-affiliate | active | high | false | — | 2026-07-02 |
+| anglers-tcg | active | high | false | — | 2026-07-02 |
 | ai-idol | idle | medium | false | — | 2026-06-03 |
 | golf | idle | medium | false | — | 2026-06-03 |
 | salon | idle | medium | false | — | 2026-06-03 |
