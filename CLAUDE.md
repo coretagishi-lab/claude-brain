@@ -40,12 +40,9 @@ while true; do
     prev_youtube_count=$current_count
   fi
 
-  # pending: 成功時のみ1行（エラーは完全無視）
-  pending_out=$(python3 /Users/tagishitakuya/Desktop/ClaudeProjects/AI-Brain/Projects/dmm-manga-affiliate/Workflows/youtube-uploader.py --check-pending 2>/dev/null)
-  if echo "$pending_out" | grep -q "コメント\|公開検知" 2>/dev/null; then
-    ok=$(echo "$pending_out" | grep -E "コメント|公開検知" | head -2)
-    [ "$ok" != "$prev_pending_ok" ] && echo "💬 $ok" && prev_pending_ok="$ok"
-  fi
+  # pending check はVPS一本化（2026-07-03）
+  # MacからのMonitorによる --check-pending は重複投稿の原因になるため廃止
+  # コメント投稿は VPS ai-brain-comment-poster.timer（3分ごと）が担当
 
   sleep 60
 done

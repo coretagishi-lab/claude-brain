@@ -57,12 +57,8 @@ while true; do
     prev_youtube_count=$current_count
   fi
 
-  # pending: 成功時のみ1行（エラーは完全無視）
-  pending_out=$(python3 /Users/tagishitakuya/Desktop/ClaudeProjects/AI-Brain/Projects/dmm-manga-affiliate/Workflows/youtube-uploader.py --check-pending 2>/dev/null)
-  if echo "$pending_out" | grep -q "コメント\|公開検知" 2>/dev/null; then
-    ok=$(echo "$pending_out" | grep -E "コメント|公開検知" | head -2)
-    [ "$ok" != "$prev_pending_ok" ] && echo "💬 $ok" && prev_pending_ok="$ok"
-  fi
+  # pending check はVPS一本化（コメント投稿はVPS ai-brain-comment-poster.timerが担当）
+  # MacからのMonitor check-pendingは重複投稿になるため廃止（2026-07-03）
 
   sleep 60
 done
@@ -72,17 +68,19 @@ Monitorが `🔔 要処理:` を通知したら CLAUDE.md の即実行ルール�
 Monitorが `📤 自動投稿` を通知したら投稿完了の確認を行う。
 Monitorが `💬` を通知したらコメント投稿完了。
 
-## 2. pending_comments.json を即確認（セッション開始直後に必ず）
+## 2. pending の状態確認（セッション開始直後に必ず）
 
 ```bash
-python3 /Users/tagishitakuya/Desktop/ClaudeProjects/AI-Brain/Projects/dmm-manga-affiliate/Workflows/youtube-uploader.py --check-pending
+# VPS側のpendingを取得してMacに同期（最新状態を反映）
+ssh -i ~/.ssh/conoha_vps root@133.88.117.175 "cat /opt/ai-brain/.credentials/pending_comments.json" > ~/.config/dmm-youtube/pending_comments.json
+cat ~/.config/dmm-youtube/pending_comments.json
 ```
 
-**【2026-06-30 更新】VPS が3分ごとにコメント自動投稿するようになった**
-- VPS `ai-brain-comment-poster.timer`（3分ごと）が pending_comments.json をチェック
-- Mac でアップロード → pending 保存と同時に VPS へ自動 scp sync
-- **PCがオフでも公開後3分以内にコメントが自動投稿される**
-- セッション開始時の --check-pending は「VPS がまだ処理していない取りこぼし」の救済
+**【2026-07-03 更新】コメント投稿はVPS完全一本化**
+- VPS `ai-brain-comment-poster.timer`（3分ごと）が唯一のコメント投稿担当
+- MacのMonitorからの `--check-pending` は **廃止**（重複投稿の原因になるため）
+- セッション開始時はVPS側のpendingをMacに同期して状態確認するだけでOK
+- 取りこぼしが心配な場合も、VPSのログを確認: `ssh ... "tail -20 /var/log/ai-brain-comment.log"`
 
 **VPS コメント投稿の仕組み:**
 - スクリプト: `/opt/ai-brain/Projects/dmm-manga-affiliate/Workflows/vps-comment-poster.py`
